@@ -167,7 +167,7 @@ Every setting `gphoto2 --list-all-config` returns: choices, switches, number ran
 
 ### Shoot
 
-One picture, with the scene beside the button. **Automatic** uses the shutter speed already on the body. A chosen time is set over USB, then the Pi waits until that exposure finishes. The D3400 times speeds up to 30 seconds itself. Longer than that uses Bulb: one press opens the shutter, the Pi waits, and a second press closes it. Those two presses are one camera session. A lone trigger is not used, because on this body that opens the shutter and returns before it closes.
+One picture, with the scene beside the button. When the shutter closes, that picture replaces live view in the frame. **Start** brings the camera view back. **Automatic** uses the shutter speed already on the body. A chosen time is set over USB, then the Pi waits until that exposure finishes. The D3400 times speeds up to 30 seconds itself. Longer than that uses Bulb: one press opens the shutter, the Pi waits, and a second press closes it. Those two presses are one camera session. A lone trigger is not used, because on this body that opens the shutter and returns before it closes.
 
 While a picture is in progress, the page does not start a second camera command. That includes the status probe that used to run every few seconds.
 

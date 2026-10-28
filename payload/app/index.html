@@ -199,7 +199,7 @@
     <div class="scene-slot"></div>
     <div class="work">
       <h2>Take a picture</h2>
-      <p class="muted">Automatic uses the shutter already on the camera. Pick a time and the Pi sets that speed, then waits until the shutter closes. Over 30 seconds, it opens the shutter, waits, and closes it.</p>
+      <p class="muted">Automatic uses the shutter already on the camera. Pick a time and the Pi sets that speed, then waits until the shutter closes. The picture replaces live view in the frame. Press Start to see the camera again. Over 30 seconds, the Pi opens the shutter, waits, and closes it.</p>
       <label for="shoot-shutter">Shutter</label>
       <select id="shoot-shutter">
         <option value="auto">Automatic</option>
@@ -520,8 +520,13 @@ $("ask-apply").onclick = async () => {
   catch (err) { $("guide-out").textContent = err.message; }
 };
 $("ask-shoot").onclick = async () => {
-  try { renderGuide(await api("/api/guide", {method: "POST", body: {text: $("ask").value, apply: true, shoot: true}})); }
-  catch (err) { $("guide-out").textContent = err.message; }
+  stopLive();
+  try {
+    const data = await api("/api/guide", {method: "POST", body: {text: $("ask").value, apply: true, shoot: true}});
+    renderGuide(data);
+    if (data.capture && data.capture.error) $("live-state").textContent = data.capture.error;
+    else if (data.capture && data.capture.files) await showCaptured(data.capture.files);
+  } catch (err) { $("guide-out").textContent = err.message; }
 };
 
 function controlField(item) {
@@ -621,7 +626,9 @@ async function liveTick() {
   if (!liveOn) return;
   try {
     const res = await api("/preview.jpg");
+    if (!liveOn) return;
     const blob = await res.blob();
+    if (!liveOn) return;
     if (liveUrl) URL.revokeObjectURL(liveUrl);
     liveUrl = URL.createObjectURL(blob);
     $("live").src = liveUrl;
@@ -652,11 +659,36 @@ document.querySelectorAll("[data-focus]").forEach((btn) => {
     catch (err) { $("focus-state").textContent = err.message; }
   };
 });
+function pictureName(files) {
+  const names = (files || []).map((path) => String(path).split("/").pop()).filter(Boolean);
+  return names.find((name) => /\.jpe?g$/i.test(name)) || names.find((name) => /\.nef$/i.test(name)) || names[0] || "";
+}
+async function showCaptured(files) {
+  stopLive();
+  const name = pictureName(files);
+  if (!name) {
+    $("live-state").textContent = "The picture was taken.";
+    return;
+  }
+  const preview = /\.jpe?g$/i.test(name) ? "" : "?preview=1";
+  const url = await authedImage("/shots/" + encodeURIComponent(name) + preview);
+  if (!url) {
+    $("live-state").textContent = "Saved " + name + ".";
+    return;
+  }
+  if (liveUrl) URL.revokeObjectURL(liveUrl);
+  liveUrl = url;
+  $("live").src = liveUrl;
+  $("live").alt = name;
+  $("live-state").textContent = "This is the picture. Press Start for live view.";
+}
 $("capture").onclick = async () => {
+  stopLive();
   try {
     const data = await api("/api/capture", {method: "POST", body: {}});
-    const files = (data.files || []).map((path) => path.split("/").pop()).join(", ");
-    alert(files ? "Saved " + files : "The picture was taken.");
+    await showCaptured(data.files);
+    const name = pictureName(data.files);
+    alert(name ? "Saved " + name + "." : "The picture was taken.");
   } catch (err) { alert(err.message); }
 };
 
@@ -680,8 +712,9 @@ $("shoot-go").onclick = async () => {
     : "Opening the shutter for " + seconds + " seconds, then closing it.";
   try {
     const data = await api("/api/capture", {method: "POST", body: {seconds}});
-    const files = (data.files || []).map((path) => path.split("/").pop()).join(", ");
-    $("shoot-state").textContent = "Saved " + (files || "the picture") + ". Shutter was " + (data.shutter || "the camera's") + ".";
+    await showCaptured(data.files);
+    const name = pictureName(data.files);
+    $("shoot-state").textContent = "Saved " + (name || "the picture") + " in the frame. Shutter was " + (data.shutter || "the camera's") + ".";
   } catch (err) {
     $("shoot-state").textContent = err.message;
   }
