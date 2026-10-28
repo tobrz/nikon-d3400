@@ -179,6 +179,12 @@ The guide’s starting exposure for lightning is ISO 200, f/8, and 5 seconds.
 
 One test frame. The guide applies ISO 800, f/3.5, and a long shutter when the body offers those names, then releases the shutter.
 
+### Place
+
+The D3400 has no GPS receiver. SnapBridge is what copies a phone's location into a picture. On the Place tab, leave **SnapBridge is connected** unchecked when the phone app is not linked. The Pi then sets the camera clock from its own clock, which follows the network time while ethernet or Starlink is up, and writes a saved latitude and longitude into JPG and NEF files after they are copied onto the Pi.
+
+**Use this phone's location** asks the browser. A phone often blocks that on a plain `http://` page. Type the numbers from Maps if it does. **Set the camera clock** writes the Pi's time into the body. **Write location into pictures on the Pi** stamps files that are already stored here. With the SnapBridge box checked, the Pi leaves the clock and the location alone.
+
 ### Shots
 
 **Show pictures on the camera** lists the card in the D3400. **Copy, then download here** pulls that file onto the Pi and saves it to the phone or laptop. **Offload camera card to the Pi** copies every picture onto the Pi, then deletes only the copies that arrived. A picture that fails to copy stays on the camera. That is how you free the camera card in the field. The copies stay on the Pi until you drag them into Photos from `smb://nikon-d3400.local/shots`. Frames already on the Pi can be downloaded one by one. **Download all on the Pi** is a zip of those files. The zip is stored, not recompressed, so NEFs stay intact.

@@ -87,6 +87,7 @@
     <button class="ghost" type="button" data-tab="lightning">Lightning</button>
     <button class="ghost" type="button" data-tab="night">Night</button>
     <button class="ghost" type="button" data-tab="shots">Shots</button>
+    <button class="ghost" type="button" data-tab="place">Place</button>
     <button class="ghost" type="button" data-tab="wifi">Wi-Fi</button>
   </nav>
 
@@ -169,6 +170,24 @@
     <p id="night-state" class="muted"></p>
   </section>
 
+  <section id="place" class="panel">
+    <h2>Time and place</h2>
+    <p class="muted">The D3400 has no GPS of its own. SnapBridge is what puts the phone's location in the file. Leave this off when SnapBridge is not connected. The Pi then sets the camera clock from its own clock, and writes the location below into pictures after they are copied here.</p>
+    <label><input id="snapbridge" type="checkbox"> SnapBridge is connected. Leave the clock and location alone.</label>
+    <label for="lat">Latitude</label>
+    <input id="lat" inputmode="decimal" placeholder="43.0731">
+    <label for="lon">Longitude</label>
+    <input id="lon" inputmode="decimal" placeholder="-89.4012">
+    <label for="alt">Altitude in meters, optional</label>
+    <input id="alt" inputmode="decimal" placeholder="266">
+    <div class="row">
+      <button type="button" id="geo-phone">Use this phone's location</button>
+      <button class="ghost" type="button" id="geo-save">Save location</button>
+      <button class="ghost" type="button" id="geo-clock">Set the camera clock</button>
+      <button class="ghost" type="button" id="geo-stamp">Write location into pictures on the Pi</button>
+    </div>
+    <p id="geo-state" class="muted"></p>
+  </section>
   <section id="shots" class="panel">
     <h2>Pictures</h2>
     <p class="muted">Copy a frame off the D3400, then download it onto this phone or laptop. The zip is everything already stored on the Pi.</p>
@@ -240,6 +259,7 @@ document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => {
   if (btn.dataset.tab !== "live") stopLive();
   if (btn.dataset.tab === "controls") loadControls();
   if (btn.dataset.tab === "shots") loadShots();
+  if (btn.dataset.tab === "place") loadGeo();
   if (btn.dataset.tab === "wifi") loadWifi();
 });
 
@@ -420,6 +440,49 @@ async function saveToPhoneZip() {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+async function loadGeo() {
+  try {
+    const data = await api("/api/geo");
+    $("snapbridge").checked = !!data.snapbridge;
+    $("lat").value = data.lat == null ? "" : data.lat;
+    $("lon").value = data.lon == null ? "" : data.lon;
+    $("alt").value = data.alt == null ? "" : data.alt;
+    $("geo-state").textContent = data.clock ? JSON.stringify(data.clock) : "";
+  } catch (err) { $("geo-state").textContent = err.message; }
+}
+function geoBody() {
+  return {snapbridge: $("snapbridge").checked, lat: $("lat").value, lon: $("lon").value, alt: $("alt").value};
+}
+$("geo-save").onclick = async () => {
+  try { $("geo-state").textContent = JSON.stringify(await api("/api/geo", {method: "POST", body: geoBody()})); }
+  catch (err) { $("geo-state").textContent = err.message; }
+};
+$("geo-phone").onclick = async () => {
+  if (!navigator.geolocation) { $("geo-state").textContent = "This browser has no location. Type the latitude and longitude."; return; }
+  $("geo-state").textContent = "Asking this phone for its location.";
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    $("lat").value = pos.coords.latitude;
+    $("lon").value = pos.coords.longitude;
+    if (pos.coords.altitude != null) $("alt").value = pos.coords.altitude;
+    try { $("geo-state").textContent = JSON.stringify(await api("/api/geo", {method: "POST", body: geoBody()})); }
+    catch (err) { $("geo-state").textContent = err.message; }
+  }, (err) => {
+    $("geo-state").textContent = "The phone did not share a location (" + err.message + "). Type the latitude and longitude. iPhone Safari often blocks this on a plain http page.";
+  }, {enableHighAccuracy: true, timeout: 15000});
+};
+$("geo-clock").onclick = async () => {
+  $("geo-state").textContent = "Setting the camera clock from the Pi.";
+  try { $("geo-state").textContent = JSON.stringify(await api("/api/geo/clock", {method: "POST", body: {}})); }
+  catch (err) { $("geo-state").textContent = err.message; }
+};
+$("geo-stamp").onclick = async () => {
+  try {
+    await api("/api/geo", {method: "POST", body: geoBody()});
+    const data = await api("/api/geo/stamp", {method: "POST", body: {}});
+    const stamped = (data.results || []).filter((item) => item.stamped).length;
+    $("geo-state").textContent = "Wrote the location into " + stamped + " pictures on the Pi.";
+  } catch (err) { $("geo-state").textContent = err.message; }
+};
 $("offload").onclick = async () => {
   const ok = confirm("Copy every picture onto the Pi, then delete those copies from the camera card? A picture that does not copy stays on the camera.");
   if (!ok) return;

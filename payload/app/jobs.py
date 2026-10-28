@@ -4,6 +4,7 @@ import threading
 import time
 
 from camera import CameraError, deletion_order
+import geo
 
 
 class Jobs:
@@ -35,6 +36,7 @@ class Jobs:
                 raise CameraError("A run is already going.")
             self.timelapse = {"running": True, "taken": 0, "error": "", "interval": interval, "count": count}
         self._stop_timelapse.clear()
+        geo.before_shot(self.camera)
         threading.Thread(target=self._timelapse_loop, args=(interval, count), daemon=True).start()
         return self.snapshot()
 
@@ -72,6 +74,7 @@ class Jobs:
                 raise CameraError("A run is already going.")
             self.lightning = {"running": True, "triggers": 0, "downloaded": 0, "error": "", "frames": frames, "gap": gap}
         self._stop_lightning.clear()
+        geo.before_shot(self.camera)
         threading.Thread(target=self._lightning_loop, args=(frames, gap), daemon=True).start()
         return self.snapshot()
 
@@ -121,6 +124,7 @@ class Jobs:
                 "error": "",
                 "note": "Reading the camera card.",
             }
+        geo.before_shot(self.camera)
         threading.Thread(target=self._offload_loop, daemon=True).start()
         return self.snapshot()
 

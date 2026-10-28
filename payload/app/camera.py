@@ -10,6 +10,8 @@ import subprocess
 import threading
 from datetime import datetime
 
+import geo
+
 
 class CameraError(RuntimeError):
     pass
@@ -168,6 +170,16 @@ class Camera:
                 skipped.append({"path": path, "value": value, "reason": str(exc)})
         return {"applied": applied, "skipped": skipped}
 
+    def set_clock(self):
+        """Set the body clock from the Pi. gphoto2 accepts the value 'now'."""
+        known = {item["key"]: item for item in self.configs()}
+        for key in ("datetime", "datetimeutc"):
+            item = known.get(key)
+            if item and not item.get("readonly"):
+                self.set_config(item["path"], "now")
+                return {"set": item["path"], "value": "now", "label": item.get("label", key)}
+        raise CameraError("This body did not offer a writable date and time control.")
+
     def capture(self):
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = os.path.join(self.shots_dir, f"shot-{stamp}.%C")
@@ -182,6 +194,7 @@ class Camera:
                 text = self.run(["--trigger-capture"], timeout=30)
                 mode = "trigger-capture"
         saved = _saved_paths(text, self.shots_dir)
+        geo.stamp_many(saved)
         return {"mode": mode, "output": text.strip(), "files": saved}
 
     def trigger(self):
@@ -236,6 +249,7 @@ class Camera:
             )
         if os.path.getsize(dest) <= 0:
             raise CameraError(f"{os.path.basename(dest)} arrived empty, so it was not removed from the camera.")
+        geo.stamp(dest)
         return {"name": os.path.basename(dest), "path": dest, "bytes": os.path.getsize(dest)}
 
     def delete_file(self, folder, index):
@@ -264,6 +278,7 @@ class Camera:
                     timeout=90,
                 )
             saved.append(dest)
+            geo.stamp(dest)
         return saved
 
 

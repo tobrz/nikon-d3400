@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 from camera import Camera, CameraError
+import geo
 from guide import plan, rephrase
 from jobs import Jobs
 from update import REPO, UpdateError, apply_update, read_revision
@@ -101,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
             self._zip_shots()
         elif path == "/api/wifi":
             self._guard(lambda: wifi_state(WIFI_PATH), wifi=True)
+        elif path == "/api/geo":
+            self._send(200, geo.load())
         elif path == "/preview.jpg":
             preview = os.path.join(DATA, "preview.jpg")
             try:
@@ -139,7 +142,13 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/config":
             self._guard(lambda: CAMERA.set_config(str(body.get("path", "")), str(body.get("value", ""))))
         elif path == "/api/capture":
-            self._guard(CAMERA.capture)
+            self._guard(self._capture)
+        elif path == "/api/geo":
+            self._save_geo(body)
+        elif path == "/api/geo/clock":
+            self._guard(lambda: geo.before_shot(CAMERA))
+        elif path == "/api/geo/stamp":
+            self._stamp_saved()
         elif path == "/api/focus":
             self._guard(lambda: CAMERA.focus(str(body.get("direction", ""))))
         elif path == "/api/camera-files/pull":
@@ -182,6 +191,23 @@ class Handler(BaseHTTPRequestHandler):
             "revision": read_revision(),
             "repo": REPO,
         }
+
+    def _capture(self):
+        clock = geo.before_shot(CAMERA)
+        result = CAMERA.capture()
+        result["clock"] = clock
+        return result
+
+    def _save_geo(self, body):
+        try:
+            self._send(200, geo.update(body))
+        except (TypeError, ValueError) as exc:
+            self._send(400, {"error": str(exc)})
+
+    def _stamp_saved(self):
+        folder = os.path.join(DATA, "shots")
+        names = [os.path.join(folder, name) for name in os.listdir(folder)] if os.path.isdir(folder) else []
+        self._send(200, {"results": geo.stamp_many(names)})
 
     def _update(self):
         try:

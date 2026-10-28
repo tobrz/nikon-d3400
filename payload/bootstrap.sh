@@ -13,7 +13,8 @@ if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null || ! command -
     fi
   else
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y gphoto2 avahi-daemon git samba
+    DEBIAN_FRONTEND=noninteractive apt-get install -y gphoto2 avahi-daemon git samba libimage-exiftool-perl
+    timedatectl set-ntp true || true
   fi
 fi
 if ! command -v gphoto2 >/dev/null; then
