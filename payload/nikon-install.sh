@@ -21,7 +21,23 @@ fi
 mkdir -p /opt/nikon-d3400 /var/lib/nikon-d3400/shots
 rm -rf /opt/nikon-d3400/app /opt/nikon-d3400/units
 cp -a "$BOOT/nikon-d3400/." /opt/nikon-d3400/
-chmod 755 /opt/nikon-d3400/bootstrap.sh /opt/nikon-d3400/nikon-install.sh /opt/nikon-d3400/app/server.py /opt/nikon-d3400/app/wifi_bringup.py || true
+chmod 755 /opt/nikon-d3400/bootstrap.sh /opt/nikon-d3400/nikon-install.sh /opt/nikon-d3400/samba-setup.sh /opt/nikon-d3400/app/server.py /opt/nikon-d3400/app/wifi_bringup.py || true
+
+# A dirty FAT card can leave the web unit renamed FSCK0000.000. Put it back
+# before enable, or the page never starts and the git update button is unreachable.
+restore_unit() {
+  local dir="$1"
+  local orphan
+  [ -d "$dir" ] || return 0
+  for orphan in "$dir"/FSCK*.000; do
+    [ -f "$orphan" ] || continue
+    if grep -q 'server.py' "$orphan"; then
+      cp "$orphan" "$dir/nikon-d3400.service"
+    fi
+  done
+}
+restore_unit "$BOOT/nikon-d3400/units"
+restore_unit /opt/nikon-d3400/units
 
 if [ -f "$BOOT/nikon-wifi.json" ]; then
   cp "$BOOT/nikon-wifi.json" /var/lib/nikon-d3400/wifi.json
@@ -30,7 +46,11 @@ if [ -f "$BOOT/nikon-revision" ] && [ ! -f /var/lib/nikon-d3400/revision ]; then
   cp "$BOOT/nikon-revision" /var/lib/nikon-d3400/revision
 fi
 
-cp /opt/nikon-d3400/units/*.service /etc/systemd/system/
+mkdir -p /etc/systemd/system
+for unit in /opt/nikon-d3400/units/*.service; do
+  [ -f "$unit" ] || continue
+  cp "$unit" /etc/systemd/system/
+done
 systemctl daemon-reload
 
 if command -v raspi-config >/dev/null; then
@@ -49,10 +69,10 @@ EOF
 fi
 
 systemctl enable ssh || true
-systemctl enable nikon-bootstrap.service nikon-wifi.service nikon-d3400.service
-systemctl start nikon-d3400.service || true
-systemctl start nikon-wifi.service || true
-systemctl start nikon-bootstrap.service || true
+for unit in nikon-bootstrap.service nikon-wifi.service nikon-d3400.service; do
+  systemctl enable "$unit" || true
+  systemctl start "$unit" || true
+done
 
 if [ ! -f /var/lib/nikon-d3400/first-reboot-done ]; then
   touch /var/lib/nikon-d3400/first-reboot-done

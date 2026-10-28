@@ -68,7 +68,7 @@ def copy_payload(payload_dir, install_dir):
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         else:
             shutil.copy2(src, dst)
-    for rel in ("bootstrap.sh", "nikon-install.sh", "app/server.py", "app/wifi_bringup.py"):
+    for rel in ("bootstrap.sh", "nikon-install.sh", "samba-setup.sh", "app/server.py", "app/wifi_bringup.py"):
         path = os.path.join(install_dir, rel)
         if os.path.isfile(path):
             os.chmod(path, 0o755)
@@ -176,16 +176,30 @@ def apply_update():
     install = install_root()
     copy_payload(os.path.join(cache, "payload"), install)
     install_units(install)
+    share = setup_share(install)
     write_revision(rev)
     restarting = schedule_restart()
+    note = (
+        "The page restarts in a couple of seconds. Refresh if it drops. "
+        "Wi-Fi settings and pictures stay put. This updates the camera console. "
+        "Raspberry Pi OS stays as it was imaged."
+    )
+    if share:
+        note = note + " " + share
     return {
         "ok": True,
         "revision": rev,
         "repo": REPO,
         "restarting": restarting,
-        "note": (
-            "The page restarts in a couple of seconds. Refresh if it drops. "
-            "Wi-Fi settings and pictures stay put. This updates the camera console. "
-            "Raspberry Pi OS stays as it was imaged."
-        ),
+        "note": note,
     }
+
+
+def setup_share(install):
+    script = os.path.join(install, "samba-setup.sh")
+    if not os.path.isfile(script):
+        return ""
+    os.chmod(script, 0o755)
+    proc = _run([script], 300)
+    text = (proc.stdout or proc.stderr or "").strip()
+    return text

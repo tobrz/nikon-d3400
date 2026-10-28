@@ -5,13 +5,16 @@ LOG=/var/lib/nikon-d3400/bootstrap.log
 mkdir -p /var/lib/nikon-d3400
 exec >>"$LOG" 2>&1
 echo "---- $(date) ----"
-if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null; then
+if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null || ! command -v smbd >/dev/null; then
   if ! ip route | grep -q '^default'; then
-    echo "No default route yet. Plug in ethernet."
-    exit 1
+    if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null; then
+      echo "No default route yet. Plug in ethernet."
+      exit 1
+    fi
+  else
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y gphoto2 avahi-daemon git samba
   fi
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y gphoto2 avahi-daemon git
 fi
 if ! command -v gphoto2 >/dev/null; then
   echo "gphoto2 still missing"
@@ -24,6 +27,21 @@ if [ "$MEM_KB" -ge 2000000 ] && ! command -v ollama >/dev/null; then
 fi
 if command -v ollama >/dev/null; then
   systemctl enable --now ollama || true
-  ollama pull qwen2.5:0.5b || echo "model pull skipped"
+  ready=0
+  for _ in 1 2 3 4 5 6; do
+    if ollama list >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 5
+  done
+  if [ "$ready" -eq 1 ]; then
+    ollama pull qwen2.5:0.5b || echo "model pull skipped"
+  else
+    echo "model pull skipped"
+  fi
+fi
+if [ -x /opt/nikon-d3400/samba-setup.sh ]; then
+  /opt/nikon-d3400/samba-setup.sh || echo "samba share skipped"
 fi
 echo "ready"

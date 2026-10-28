@@ -97,6 +97,8 @@ fi
 
 sync
 echo "Boot volume ready at $BOOT"
-echo "First boot: ethernet plugged in, no keyboard, no HDMI, no camera."
-echo "When Wi-Fi Nikon-D3400 appears, open http://192.168.50.1"
+diskutil eject "$DISK" || true
+echo "Card ejected. First boot takes about 10 minutes."
+echo "Ethernet plugged in, no keyboard, no HDMI, no camera."
+echo "The Pi reboots once by itself. Then open http://nikon-d3400.local"
 echo "Password: nikon-d3400"

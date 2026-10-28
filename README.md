@@ -37,11 +37,24 @@ SSH user: `camera`.
 
    The script downloads Raspberry Pi OS Lite, 64-bit, Trixie, image `2026-10-06-raspios-trixie-arm64-lite.img.xz`, checks its SHA256, writes it, then copies this project onto the boot partition. The download is cached in `~/Library/Caches/nikon-d3400` and is not part of the git repo.
 
-4. The script prints `Boot volume ready` when the first-boot files are in place. Those files are `user-data`, `meta-data`, `ssh`, `nikon-install.sh`, `nikon-revision`, and the `nikon-d3400/` folder.
+4. The script prints `Boot volume ready` and ejects the card. The first-boot files are `user-data`, `meta-data`, `ssh`, `nikon-install.sh`, `nikon-revision`, and the `nikon-d3400/` folder. Ejecting matters. Pulling the card while it is still mounted can drop a boot file, and the web page then never starts.
 
-5. Eject the card and put it in the Pi.
+5. Put the card in the Pi.
 
 A later software change does not need this step. Use the web update below. Image the card again when you want a fresh Raspberry Pi OS, or when the web page will not come up at all.
+
+## How long the first boot takes
+
+Plan on about 10 minutes from the moment you apply power. Give a slow network or a slow card 20 minutes before you pull it out to read the log.
+
+On a Pi 4 with ethernet, timed from one real first boot:
+
+- About 2 minutes: the Pi answers on the network as `nikon-d3400`. SSH is up. The web page may still be installing.
+- The Pi reboots once by itself, a few minutes in. That reboot is part of setup. Leave it plugged in.
+- About 10 minutes: open the page. Packages, including the picture share, are in place by then.
+- On a Pi with 2 GB of RAM or more, the optional speech model can still be downloading after the page is up. The written guide works before that finishes. A Pi Zero 2 W skips the model.
+
+Use the ethernet address from your router, or `http://nikon-d3400.local` once the name appears. The address `http://192.168.50.1` is only for the Pi's own Wi-Fi, when no house network is saved.
 
 ## First boot
 
@@ -70,7 +83,21 @@ Then move the USB cable to the camera.
 - Pi Zero 2 W: the USB port is in host mode. Use a USB-OTG host adapter and a USB-A to micro-USB cable. Remove the ethernet adapter first. The Pi is on Wi-Fi now.
 - Pi 3, 4, or 5: use a normal USB-A port. Ethernet can stay or go.
 
-Change the page password on the Wi-Fi tab. It must be at least 8 characters. Change the SSH password after you log in, with `passwd`. The standalone access-point password stays `nikon-d3400`.
+Change the page password on the Wi-Fi tab. It must be at least 8 characters. Change the SSH password after you log in, with `passwd`, and then set the same password for the picture share with `smbpasswd`. The standalone access-point password stays `nikon-d3400`.
+
+## Pictures on the Mac
+
+The Pi shares the folder of pictures already stored on it. In Finder, choose Go, Connect to Server, and enter:
+
+```text
+smb://nikon-d3400.local/shots
+```
+
+Sign in as `camera`. The factory password is `nikon-d3400`. The share is read-only. Drag the files from that window into the Photos app. New frames show up here after the page has copied them off the camera, or after a timelapse or lightning run has saved them on the Pi.
+
+The same login works with `smb://` and the ethernet address your router gave the Pi. That address can change. The name `nikon-d3400.local` is the one to keep.
+
+A git update installs this share. The first image does too, as long as ethernet has a route during that first boot.
 
 ## Update without imaging the card again
 
