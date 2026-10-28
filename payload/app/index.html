@@ -102,7 +102,33 @@
   .shot { margin: 8px 0; }
   .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .gallery figure { margin: 0; }
-  .gallery img { width: 100%; aspect-ratio: 3/2; object-fit: cover; border-radius: 10px; background: #000; display: block; }
+  .gallery img { width: 100%; aspect-ratio: 3/2; object-fit: cover; border-radius: 10px; background: #000; display: block; cursor: zoom-in; }
+  #viewer:not([hidden]) {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(8, 7, 5, 0.94);
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+  }
+  #viewer .viewer-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  #viewer-caption { margin: 0; min-width: 0; }
+  #viewer-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #viewer-image { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 8px; background: #000; }
+  #viewer-prev, #viewer-next {
+    position: absolute;
+    top: 50%;
+    width: 52px;
+    min-height: 88px;
+    font-size: 34px;
+    line-height: 1;
+    padding: 8px;
+    transform: translateY(-50%);
+  }
+  #viewer-prev { left: 0; }
+  #viewer-next { right: 0; }
+  #viewer-prev:active, #viewer-next:active, #viewer-prev.ack, #viewer-next.ack { transform: translateY(-50%); }
   .gallery button { width: 100%; margin-top: 4px; }
   img.frame, video { width: 100%; border-radius: 12px; background: #000; }
   video { margin-top: 8px; }
@@ -349,7 +375,7 @@
     <p id="shots-download-state" class="muted"></p>
     <p id="shots-delete-state" class="muted"></p>
     <h2>Latest on the Pi</h2>
-    <p class="muted">Pictures taken from this page land here, newest first. A raw file and its JPEG are one picture. The JPEG is what you see.</p>
+    <p class="muted">Pictures taken from this page land here, newest first. A raw file and its JPEG are one picture. The JPEG is what you see. Tap a picture to open it large. Left and right move through this set.</p>
     <div id="shots-out"></div>
     <h2>Still on the camera</h2>
     <p id="card-state" class="muted"></p>
@@ -382,6 +408,17 @@
     <p id="update-state" class="muted"></p>
   </section>
 </main>
+<div id="viewer" hidden>
+  <div class="viewer-bar">
+    <p id="viewer-caption"></p>
+    <button class="ghost" type="button" id="viewer-close">Close</button>
+  </div>
+  <div id="viewer-stage">
+    <button type="button" id="viewer-prev" aria-label="Previous picture">‹</button>
+    <img id="viewer-image" alt="">
+    <button type="button" id="viewer-next" aria-label="Next picture">›</button>
+  </div>
+</div>
 <script>
 const key = "nikon-password";
 let pass = localStorage.getItem(key) || "";
@@ -421,6 +458,7 @@ document.addEventListener("pointerdown", (ev) => {
 });
 const shootTabs = ["guide", "live", "shoot", "timelapse", "bracket", "lightning", "night"];
 function show(tab) {
+  if (tab !== "shots") closeViewer();
   document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("on", el.id === tab));
   document.querySelectorAll("nav button").forEach((el) => {
     el.classList.toggle("ghost", el.dataset.tab !== tab);
@@ -834,7 +872,78 @@ function shotGroups(shots) {
   }
   return groups;
 }
+let viewerImgs = [];
+let viewerAt = 0;
+function renderViewer() {
+  const img = viewerImgs[viewerAt];
+  if (!img) { closeViewer(); return; }
+  const view = $("viewer-image");
+  if (img.src) view.src = img.src;
+  else view.removeAttribute("src");
+  const name = img.alt || "";
+  view.alt = name;
+  const where = img.dataset.folder ? " · thumbnail" : "";
+  $("viewer-caption").textContent = (viewerAt + 1) + " of " + viewerImgs.length + " · " + name + where;
+  $("viewer-prev").disabled = viewerAt <= 0;
+  $("viewer-next").disabled = viewerAt >= viewerImgs.length - 1;
+  $("viewer").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+function openViewer(imgs, index) {
+  viewerImgs = imgs;
+  viewerAt = index;
+  renderViewer();
+}
+function closeViewer() {
+  $("viewer").hidden = true;
+  $("viewer-image").removeAttribute("src");
+  document.body.style.overflow = "";
+  viewerImgs = [];
+}
+function stepViewer(delta) {
+  const next = viewerAt + delta;
+  if ($("viewer").hidden || next < 0 || next >= viewerImgs.length) return;
+  viewerAt = next;
+  renderViewer();
+}
+function bindViewer(root) {
+  const imgs = [...root.querySelectorAll(".gallery img")];
+  imgs.forEach((img, index) => { img.onclick = () => openViewer(imgs, index); });
+}
+function noteViewerImage(img) {
+  if ($("viewer").hidden) return;
+  if (viewerImgs[viewerAt] === img) renderViewer();
+}
+function closeViewerIfInside(root) {
+  const current = viewerImgs[viewerAt];
+  if (current && root.contains(current)) closeViewer();
+}
+$("viewer-close").onclick = closeViewer;
+$("viewer-prev").onclick = () => stepViewer(-1);
+$("viewer-next").onclick = () => stepViewer(1);
+$("viewer-stage").addEventListener("click", (ev) => {
+  if (ev.target === $("viewer-stage")) closeViewer();
+});
+let viewerTouchX = null;
+$("viewer-stage").addEventListener("touchstart", (ev) => {
+  if (ev.target.closest("button")) { viewerTouchX = null; return; }
+  viewerTouchX = ev.changedTouches[0].clientX;
+}, {passive: true});
+$("viewer-stage").addEventListener("touchend", (ev) => {
+  if (viewerTouchX == null) return;
+  const dx = ev.changedTouches[0].clientX - viewerTouchX;
+  viewerTouchX = null;
+  if (Math.abs(dx) < 50) return;
+  stepViewer(dx > 0 ? -1 : 1);
+}, {passive: true});
+document.addEventListener("keydown", (ev) => {
+  if ($("viewer").hidden) return;
+  if (ev.key === "Escape") closeViewer();
+  else if (ev.key === "ArrowLeft") stepViewer(-1);
+  else if (ev.key === "ArrowRight") stepViewer(1);
+});
 async function loadShots() {
+  closeViewerIfInside($("shots-out"));
   const data = await api("/api/shots");
   const groups = shotGroups(data.shots || []);
   $("shots-out").innerHTML = groups.length ? `<div class="gallery">${groups.map((group) => {
@@ -851,12 +960,16 @@ async function loadShots() {
   }).join("")}</div>` : "<p class='muted'>No frames on the Pi yet.</p>";
   $("shots-out").querySelectorAll("[data-save]").forEach((btn) => { btn.onclick = () => saveToPhone(btn.dataset.save); });
   $("shots-out").querySelectorAll("[data-delete]").forEach((btn) => { btn.onclick = () => deletePiShots(decodeURIComponent(btn.dataset.delete).split("\n")); });
+  bindViewer($("shots-out"));
   const card = loadCameraPictures();
   await Promise.all([...$("shots-out").querySelectorAll("[data-pi]")].map(async (img) => {
     const preview = img.dataset.raw ? "?preview=1" : "";
     try {
       const url = await authedImage("/shots/" + encodeURIComponent(img.dataset.pi) + preview);
-      if (url) img.src = url;
+      if (url) {
+        img.src = url;
+        noteViewerImage(img);
+      }
     } catch (err) {
       img.alt = err.message;
     }
@@ -949,12 +1062,14 @@ $("offload").onclick = async () => {
   $("offload").disabled = false;
 };
 async function loadCameraPictures() {
+  closeViewerIfInside($("card-out"));
   $("card-out").textContent = "Reading the card in the camera…";
   try {
     const data = await api("/api/camera-files");
     const files = (data.files || []).slice().reverse().slice(0, 24);
     const extra = (data.files || []).length - files.length;
     $("card-out").innerHTML = files.length ? `<div class="gallery">${files.map((file) => `<figure><img alt="${file.name}" data-folder="${file.folder}" data-index="${file.index}" data-name="${file.name}"><figcaption class="muted">${file.name}</figcaption><button type="button" data-folder="${file.folder}" data-index="${file.index}" data-name="${file.name}">Copy, then download</button></figure>`).join("")}</div>${extra > 0 ? `<p class="muted">Showing the newest 24 of ${(data.files || []).length}.</p>` : ""}` : "<p class='muted'>The camera card looks empty.</p>";
+    bindViewer($("card-out"));
     $("card-out").querySelectorAll("button").forEach((btn) => {
       btn.onclick = async () => {
         btn.disabled = true;
@@ -981,7 +1096,10 @@ async function loadCameraPictures() {
       const url = "/api/camera-thumb?folder=" + encodeURIComponent(img.dataset.folder) + "&index=" + encodeURIComponent(img.dataset.index) + "&name=" + encodeURIComponent(img.dataset.name || "");
       try {
         const blobUrl = await authedImage(url);
-        if (blobUrl) img.src = blobUrl;
+        if (blobUrl) {
+          img.src = blobUrl;
+          noteViewerImage(img);
+        }
       } catch (err) {
         img.alt = err.message;
       }
