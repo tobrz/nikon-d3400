@@ -1,10 +1,11 @@
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from camera import deletion_order, live_view_block_reason, parse_configs, parse_files
+from camera import adopt_preview, deletion_order, live_view_block_reason, parse_configs, parse_files, preview_download_path
 from guide import classify, plan
 
 
@@ -48,6 +49,19 @@ class ParseTests(unittest.TestCase):
         rows = parse_files(text)
         self.assertEqual(rows[0]["name"], "DSC_0001.JPG")
         self.assertEqual(rows[0]["index"], 1)
+
+    def test_preview_is_saved_under_the_thumb_name(self):
+        requested = "/var/lib/nikon-d3400/preview.jpg"
+        self.assertEqual(preview_download_path(requested), "/var/lib/nikon-d3400/thumb_preview.jpg")
+        with tempfile.TemporaryDirectory() as tmp:
+            asked = os.path.join(tmp, "preview.jpg")
+            written = preview_download_path(asked)
+            with open(written, "wb") as handle:
+                handle.write(b"\xff\xd8jpeg")
+            self.assertEqual(adopt_preview(asked), asked)
+            with open(asked, "rb") as handle:
+                self.assertEqual(handle.read(), b"\xff\xd8jpeg")
+            self.assertFalse(os.path.exists(written))
 
     def test_manual_mode_live_view_message_is_not_a_block(self):
         self.assertEqual(live_view_block_reason("Liveview should not be prohibited"), "")

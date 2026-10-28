@@ -74,6 +74,30 @@ def parse_files(text):
     return files
 
 
+def preview_download_path(requested):
+    """gphoto2 saves a preview as thumb_<name> in the same directory.
+
+    --filename /var/lib/nikon-d3400/preview.jpg becomes thumb_preview.jpg.
+    The page then looks for preview.jpg and reports a missing file.
+    """
+    directory, name = os.path.split(requested)
+    if not name:
+        name = "preview.jpg"
+    return os.path.join(directory, "thumb_" + name)
+
+
+def adopt_preview(requested):
+    """Move gphoto2's thumb_ preview onto the path the page serves."""
+    downloaded = preview_download_path(requested)
+    if os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
+        if os.path.abspath(downloaded) != os.path.abspath(requested):
+            os.replace(downloaded, requested)
+        return requested
+    if os.path.isfile(requested) and os.path.getsize(requested) > 0:
+        return requested
+    return ""
+
+
 def live_view_block_reason(current):
     """Return a user-facing reason when live view is actually prohibited.
 
@@ -236,7 +260,14 @@ class Camera:
             reason = live_view_block_reason(current)
             if reason:
                 raise CameraError(reason)
+            for stale in (path, preview_download_path(path)):
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass
             self.run(["--capture-preview", "--filename", path, "--force-overwrite"], timeout=25)
+            if not adopt_preview(path):
+                raise CameraError("The camera did not return a live view frame.")
         return path
 
     def focus(self, direction):
