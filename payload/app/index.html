@@ -77,6 +77,7 @@
     <div id="status" class="pill">Looking for the camera</div>
   </div>
   <button class="ghost" id="refresh" type="button">Refresh</button>
+  <button class="ghost" id="update-check" type="button">Check for updates</button>
 </header>
 <main>
   <nav>
@@ -108,7 +109,7 @@
 
   <section id="live" class="panel">
     <h2>Live view</h2>
-    <p class="muted">A new frame is pulled from the D3400 as fast as USB allows. If this body refuses live view, the message under the picture says so. Focus steps need the lens on M. Autofocus needs it on A.</p>
+    <p class="muted">Live view works only with the mode dial on P, A, S, or M. Press Stop if the message under the picture is an error. The page stops asking after an error, so it does not keep releasing the shutter. Focus steps need the lens on M. Autofocus needs it on A.</p>
     <img id="live" class="frame" alt="Live view appears here">
     <p id="live-state" class="muted"></p>
     <div class="row">
@@ -228,7 +229,10 @@
     <p class="muted">Downloads the camera console from the public git repo and restarts this page. Pictures, saved Wi-Fi networks, and this password stay on the Pi. Raspberry Pi OS stays as it was imaged.</p>
     <p class="muted">The Pi needs ethernet, or a Wi-Fi network it has joined that can reach the internet. While it is only the Nikon-D3400 access point, this button cannot download anything.</p>
     <p id="rev-line" class="muted"></p>
-    <div class="row"><button type="button" id="update-go">Update from git</button></div>
+    <div class="row">
+      <button class="ghost" type="button" id="update-check-2">Check for updates</button>
+      <button type="button" id="update-go">Update from git</button>
+    </div>
     <p id="update-state" class="muted"></p>
   </section>
 </main>
@@ -304,7 +308,30 @@ async function refresh() {
     $("status").textContent = err.message;
   }
 }
-$("refresh").onclick = refresh;
+$("refresh").onclick = async () => {
+  $("status").textContent = "Reading the camera…";
+  await refresh();
+  const panel = document.querySelector("section.panel.on");
+  if (!panel) return;
+  if (panel.id === "controls") await loadControls();
+  else if (panel.id === "raw") await loadRaw();
+  else if (panel.id === "place") await loadGeo();
+  else if (panel.id === "shots") await loadShots();
+  else if (panel.id === "wifi") await loadWifi();
+};
+async function checkUpdates() {
+  $("status").textContent = "Checking git…";
+  try {
+    const data = await api("/api/update/check", {method: "POST", body: {}});
+    $("status").textContent = data.note || (data.update ? "An update is available." : "Already up to date.");
+    const line = $("update-state");
+    if (line) line.textContent = $("status").textContent;
+  } catch (err) {
+    $("status").textContent = err.message;
+  }
+}
+$("update-check").onclick = checkUpdates;
+if ($("update-check-2")) $("update-check-2").onclick = checkUpdates;
 
 let lastPlan = null;
 function renderGuide(data) {
@@ -415,9 +442,11 @@ async function liveTick() {
     $("live").src = liveUrl;
     $("live-state").textContent = "Live view is running.";
   } catch (err) {
+    liveOn = false;
     $("live-state").textContent = err.message;
+    return;
   }
-  if (liveOn) setTimeout(liveTick, 300);
+  if (liveOn) setTimeout(liveTick, 700);
 }
 $("live-start").onclick = () => { liveOn = true; $("live-state").textContent = "Asking the camera for a frame…"; liveTick(); };
 $("live-stop").onclick = stopLive;

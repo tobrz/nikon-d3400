@@ -115,6 +115,38 @@ def ensure_git():
         raise UpdateError(_failure(install, "Could not install git."))
 
 
+def revisions_match(installed, remote):
+    installed = (installed or "").strip()
+    remote = (remote or "").strip()
+    if not installed or not remote:
+        return False
+    return remote.startswith(installed) or installed.startswith(remote)
+
+
+def check_update():
+    """Ask GitHub if main is newer than the revision installed on this Pi."""
+    check_route()
+    ensure_git()
+    proc = _run(["git", "ls-remote", REPO, "refs/heads/" + BRANCH], 60)
+    if proc.returncode != 0:
+        raise UpdateError(_failure(proc, "Could not reach the git repo."))
+    remote = (proc.stdout.split() or [""])[0]
+    installed = read_revision()
+    available = remote[:7]
+    behind = not revisions_match(installed, remote)
+    if behind:
+        note = "An update is available (" + (available or "unknown") + "). Use Update from git to install it."
+    else:
+        note = "This Pi is already on " + (installed or available) + "."
+    return {
+        "installed": installed,
+        "available": available,
+        "update": behind,
+        "repo": REPO,
+        "note": note,
+    }
+
+
 def fetch_repo(cache):
     if os.path.isdir(os.path.join(cache, ".git")):
         fetch = _run(["git", "-C", cache, "fetch", "--depth", "1", "origin", BRANCH], 180)

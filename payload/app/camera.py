@@ -203,14 +203,23 @@ class Camera:
         return {"output": text.strip()}
 
     def preview(self, path):
-        """One live-view frame. Turns the viewfinder on when the body allows it."""
+        """One live-view frame.
+
+        Do not set viewfinder=1. On this Nikon that control releases the shutter.
+        """
         with self._lock:
-            for spec in ("viewfinder=1", "/main/actions/viewfinder=1", "liveview=1"):
-                try:
-                    self.run(["--set-config", spec], timeout=8)
-                    break
-                except CameraError:
-                    continue
+            try:
+                text = self.run(["--get-config", "/main/status/liveviewprohibit"], timeout=15)
+            except CameraError:
+                text = ""
+            current = ""
+            for line in text.splitlines():
+                if line.strip().startswith("Current:"):
+                    current = line.split(":", 1)[1].strip()
+            if current and not current.lower().startswith("no "):
+                raise CameraError(
+                    current + " Turn the mode dial to P, A, S, or M. The page will not release the shutter."
+                )
             self.run(["--capture-preview", "--filename", path, "--force-overwrite"], timeout=25)
         return path
 

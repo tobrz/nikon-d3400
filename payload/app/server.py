@@ -13,7 +13,7 @@ from camera import Camera, CameraError
 import geo
 from guide import plan, rephrase
 from jobs import Jobs
-from update import REPO, UpdateError, apply_update, read_revision
+from update import REPO, UpdateError, apply_update, check_update, read_revision
 from wifi import AP_ADDRESS, bringup, load_networks, save_networks, wifi_state
 
 DATA = os.environ.get("NIKON_DATA", "/var/lib/nikon-d3400")
@@ -170,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
             self._guide(body)
         elif path == "/api/wifi":
             self._add_wifi(body)
+        elif path == "/api/update/check":
+            self._update_check()
         elif path == "/api/update":
             self._update()
         else:
@@ -208,6 +210,12 @@ class Handler(BaseHTTPRequestHandler):
         folder = os.path.join(DATA, "shots")
         names = [os.path.join(folder, name) for name in os.listdir(folder)] if os.path.isdir(folder) else []
         self._send(200, {"results": geo.stamp_many(names)})
+
+    def _update_check(self):
+        try:
+            self._send(200, check_update())
+        except UpdateError as exc:
+            self._send(502, {"error": str(exc)})
 
     def _update(self):
         try:

@@ -6,10 +6,15 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from update import UpdateError, copy_payload, has_default_route
+from update import UpdateError, copy_payload, has_default_route, revisions_match
 
 
 class UpdateTests(unittest.TestCase):
+    def test_revision_match_accepts_a_short_hash(self):
+        self.assertTrue(revisions_match("cb5a412", "cb5a412abcdef"))
+        self.assertFalse(revisions_match("e2bfada", "cb5a412abcdef"))
+        self.assertFalse(revisions_match("", "cb5a412abcdef"))
+
     def test_route_text(self):
         self.assertTrue(has_default_route("default via 192.168.1.1 dev eth0\n"))
         self.assertFalse(has_default_route("192.168.50.0/24 dev wlan0 proto kernel scope link\n"))

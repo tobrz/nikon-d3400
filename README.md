@@ -111,8 +111,8 @@ A git update installs this share. The first image does too, once the Pi has a ro
 The Pi keeps its own checkout and can pull this public repo.
 
 1. Give the Pi a route to the internet. Ethernet, house Wi-Fi, and Starlink all count. The standalone `Nikon-D3400` access point has no upstream, so the button stops and tells you that.
-2. Open the Wi-Fi tab.
-3. Choose **Update from git**.
+2. Open the Wi-Fi tab, or use **Check for updates** at the top of the page.
+3. **Check for updates** only asks GitHub if `main` is newer. **Update from git** installs that commit and restarts the page.
 
 The button installs `git` if the first boot did not, shallow-clones or fast-forwards `https://github.com/tobrz/nikon-d3400.git`, copies `payload/` over `/opt/nikon-d3400`, reloads the service units, and restarts the web page a couple of seconds later. Refresh if the page drops.
 
