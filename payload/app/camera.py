@@ -268,7 +268,11 @@ class Camera:
             self.run(["--capture-preview", "--filename", path, "--force-overwrite"], timeout=25)
             if not adopt_preview(path):
                 raise CameraError("The camera did not return a live view frame.")
-        return path
+            with open(path, "rb") as handle:
+                frame = handle.read()
+        if frame[:2] != b"\xff\xd8":
+            raise CameraError("The camera did not return a live view frame.")
+        return frame
 
     def focus(self, direction):
         moves = {

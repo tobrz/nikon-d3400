@@ -113,13 +113,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/geo":
             self._send(200, geo.load())
         elif path == "/preview.jpg":
-            preview = os.path.join(DATA, "preview.jpg")
             try:
-                CAMERA.preview(preview)
+                frame = CAMERA.preview(os.path.join(DATA, "preview.jpg"))
             except CameraError as exc:
                 self._send(502, {"error": str(exc)})
                 return
-            self._file(preview, "image/jpeg")
+            self._send(200, frame, "image/jpeg")
         else:
             self._send(404, {"error": "Not found"})
 
