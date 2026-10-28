@@ -68,7 +68,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _authorized(self):
-        return self.headers.get("X-Nikon-Password", "") == password()
+        secret = password()
+        if self.headers.get("X-Nikon-Password", "") == secret:
+            return True
+        return password_from_cookie(self.headers.get("Cookie", "")) == secret
 
     def _require(self):
         if self._authorized():
@@ -513,6 +516,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"error": str(exc), "ap_address": AP_ADDRESS, "known": []})
                 return
             self._send(500, {"error": str(exc)})
+
+
+def password_from_cookie(header):
+    """The page password stored so a normal link can download the zip."""
+    for part in (header or "").split(";"):
+        name, sep, value = part.strip().partition("=")
+        if sep and name == "nikon-password":
+            return unquote(value)
+    return ""
 
 
 def shot_filename(name):

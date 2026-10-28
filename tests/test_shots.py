@@ -10,7 +10,7 @@ os.environ["NIKON_DATA"] = _tmp
 os.environ["NIKON_WIFI"] = os.path.join(_tmp, "wifi.json")
 os.environ["NIKON_PASSWORD_FILE"] = os.path.join(_tmp, "password")
 
-from server import delete_shots, shot_filename
+from server import delete_shots, password_from_cookie, shot_filename
 
 
 class DeleteShotTests(unittest.TestCase):
@@ -40,6 +40,17 @@ class DeleteShotTests(unittest.TestCase):
         self.assertEqual(shot_filename("shot.jpg"), "shot.jpg")
         with self.assertRaises(ValueError):
             shot_filename("shots/shot.jpg")
+
+    def test_password_cookie_is_read_for_the_download_link(self):
+        self.assertEqual(password_from_cookie(""), "")
+        self.assertEqual(
+            password_from_cookie("other=1; nikon-password=nikon-d3400"),
+            "nikon-d3400",
+        )
+        self.assertEqual(
+            password_from_cookie("nikon-password=a%20b%3Dc"),
+            "a b=c",
+        )
 
 
 if __name__ == "__main__":

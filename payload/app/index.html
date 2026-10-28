@@ -57,21 +57,21 @@
     border-radius: 10px;
     padding: 10px 12px;
   }
-  button, a.ghost {
+  button, a.button, a.ghost {
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 80ms ease;
   }
-  button { background: var(--amber); color: #1a140c; border: 0; font-weight: 650; }
-  button:hover { background: #f2b85a; }
-  button:active { background: #b78322; transform: translateY(1px); }
-  button.ack { background: var(--good); color: #14210f; transform: none; }
+  button, a.button { background: var(--amber); color: #1a140c; border: 0; font-weight: 650; }
+  button:hover, a.button:hover { background: #f2b85a; }
+  button:active, a.button:active { background: #b78322; transform: translateY(1px); }
+  button.ack, a.button.ack { background: var(--good); color: #14210f; transform: none; }
   button.ghost, a.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  a.ghost { display: inline-block; text-align: center; text-decoration: none; padding: 10px 12px; border-radius: 10px; }
+  a.button, a.ghost { display: inline-block; text-align: center; text-decoration: none; padding: 10px 12px; border-radius: 10px; }
   button.ghost:hover, a.ghost:hover { background: #322b22; border-color: var(--amber); color: #f6d7a2; }
   button.ghost:active, a.ghost:active { background: #4a3b24; color: var(--ink); transform: translateY(1px); }
   button.ghost.ack, a.ghost.ack { background: #243024; border-color: var(--good); color: var(--good); transform: none; }
-  button:focus-visible, a.ghost:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  button:focus-visible, a.button:focus-visible, a.ghost:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   button:disabled { opacity: 0.5; cursor: default; }
   .panel { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
   .panel.on { display: block; }
@@ -342,10 +342,11 @@
     <div class="row">
       <button type="button" id="offload">Offload camera card to the Pi</button>
       <button type="button" id="card-list">Show pictures on the camera</button>
-      <a class="ghost" id="zip-link" href="/api/shots.zip">Download all on the Pi</a>
+      <a class="button" id="shots-download-all" href="/api/shots.zip" download="nikon-d3400.zip">Download all</a>
       <button class="ghost" type="button" id="shots-delete-all">Delete all on the Pi</button>
     </div>
     <p id="offload-state" class="muted"></p>
+    <p id="shots-download-state" class="muted"></p>
     <p id="shots-delete-state" class="muted"></p>
     <h2>Latest on the Pi</h2>
     <p class="muted">Pictures taken from this page land here, newest first. A raw file and its JPEG are one picture. The JPEG is what you see.</p>
@@ -386,6 +387,12 @@ const key = "nikon-password";
 let pass = localStorage.getItem(key) || "";
 const $ = (id) => document.getElementById(id);
 
+function rememberSession() {
+  if (!pass) return;
+  document.cookie = "nikon-password=" + encodeURIComponent(pass) + "; Path=/; Max-Age=31536000; SameSite=Lax";
+}
+rememberSession();
+
 async function api(path, opts) {
   const headers = {"X-Nikon-Password": pass};
   const init = Object.assign({headers}, opts || {});
@@ -406,7 +413,7 @@ async function api(path, opts) {
 }
 
 document.addEventListener("pointerdown", (ev) => {
-  const btn = ev.target.closest("button, a.ghost");
+  const btn = ev.target.closest("button, a.button, a.ghost");
   if (!btn || btn.disabled) return;
   btn.classList.add("ack");
   clearTimeout(btn._ack);
@@ -438,6 +445,7 @@ $("login").onsubmit = async (ev) => {
   const res = await fetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({password: pass})});
   if (!res.ok) { $("login-error").textContent = "That password was refused."; return; }
   localStorage.setItem(key, pass);
+  rememberSession();
   $("gate").style.display = "none";
   refresh();
 };
@@ -880,20 +888,10 @@ async function deletePiShots(names, all) {
   }
 }
 $("shots-delete-all").onclick = () => deletePiShots([], true);
-$("zip-link").onclick = async (ev) => {
-  ev.preventDefault();
-  await saveToPhoneZip();
-};
-async function saveToPhoneZip() {
-  const res = await api("/api/shots.zip");
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "nikon-d3400.zip";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
+$("shots-download-all").addEventListener("click", () => {
+  rememberSession();
+  $("shots-download-state").textContent = "Saving every picture stored on the Pi as nikon-d3400.zip. The camera card stays as it is.";
+});
 async function loadGeo() {
   try {
     const data = await api("/api/geo");
@@ -1035,6 +1033,7 @@ $("pw-save").onclick = async () => {
     await api("/api/password", {method: "POST", body: {password: $("new-pw").value}});
     pass = $("new-pw").value;
     localStorage.setItem(key, pass);
+    rememberSession();
     alert("Password saved on the Pi.");
   } catch (err) { alert(err.message); }
 };
