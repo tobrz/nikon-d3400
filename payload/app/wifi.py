@@ -40,6 +40,59 @@ def save_networks(path, networks):
         handle.write("\n")
 
 
+def _split_nmcli(line):
+    parts = []
+    buf = []
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\" and index + 1 < len(line):
+            buf.append(line[index + 1])
+            index += 2
+            continue
+        if char == ":":
+            parts.append("".join(buf))
+            buf = []
+            index += 1
+            continue
+        buf.append(char)
+        index += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def parse_wifi_list(text):
+    """Turn `nmcli -t` wifi rows into unique networks, strongest first."""
+    found = {}
+    for line in (text or "").splitlines():
+        cols = _split_nmcli(line.strip())
+        if len(cols) < 3:
+            continue
+        ssid = cols[0].strip()
+        if not ssid:
+            continue
+        try:
+            signal = int(cols[1])
+        except ValueError:
+            signal = 0
+        security = cols[2].strip() or "open"
+        previous = found.get(ssid)
+        if previous is None or signal > previous["signal"]:
+            found[ssid] = {"ssid": ssid, "signal": signal, "security": security}
+    return sorted(found.values(), key=lambda item: item["signal"], reverse=True)
+
+
+def scan_wifi():
+    listed = _run(
+        ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", "yes"],
+        timeout=25,
+    )
+    if listed.returncode != 0:
+        detail = (listed.stderr or listed.stdout or "The Wi-Fi scan failed.").strip()
+        raise RuntimeError(detail)
+    return parse_wifi_list(listed.stdout or "")
+
+
 def addresses():
     found = []
     done = _run(["ip", "-4", "-o", "addr", "show"], timeout=8)

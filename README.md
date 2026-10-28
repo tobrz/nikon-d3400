@@ -147,6 +147,10 @@ The same planner also covers lightning, timelapse, a general night frame, and a 
 
 ### Live view
 
+The live picture sits above Guide, Live view, Menu, Timelapse, Lightning, and Night, which are the pages that can release the shutter. It stays running when you move between those pages. **Record video** and **Stop recording** use the camera's movie control. The clip stays on the camera card.
+
+### Live view details
+
 **Start live view** asks the body for a preview and keeps requesting frames. Near and Far buttons drive `manualfocusdrive` in steps of 1, 2, and 3. **Autofocus** sends `autofocusdrive`. The lens switch wants M for the near/far steps and A for autofocus.
 
 Live view and remote focus are attempted. Some Nikon bodies refuse them over USB. When the D3400 refuses, the text under the picture is the gphoto2 error. Treat that message as the result until a connected body proves the control works.
@@ -154,6 +158,8 @@ Live view and remote focus are attempted. Some Nikon bodies refuse them over USB
 ### Raw
 
 The Raw tab is the body's own report: the gphoto2 summary, the capture abilities, and every control with its path, whether it is writable, and its current value. Lens identity is in that summary as Lens ID, Lens Type, and the minimum and maximum focal length. The D3400 sends those as numbers and millimeters, not the name printed on the lens barrel.
+
+**Check firmware against Nikon** reads the body's Device Version and compares it with the C firmware named on [Nikon's D3400 download page](https://downloadcenter.nikonimglib.com/en/download/fw/284.html). The Pi needs ethernet or a joined network with internet. The button does not download or install the file. When Nikon has a newer version, the update is still their file, copied to the root of a card that was formatted in the camera.
 
 ### Menu
 
@@ -183,11 +189,11 @@ The D3400 has no GPS receiver. SnapBridge is what copies a phone's location into
 
 ### Shots
 
-**Show pictures on the camera** lists the card in the D3400. **Copy, then download here** pulls that file onto the Pi and saves it to the phone or laptop. **Offload camera card to the Pi** copies every picture onto the Pi, then deletes only the copies that arrived. A picture that fails to copy stays on the camera. That is how you free the camera card in the field. The copies stay on the Pi until you drag them into Photos from `smb://nikon-d3400.local/shots`. Frames already on the Pi can be downloaded one by one. **Download all on the Pi** is a zip of those files. The zip is stored, not recompressed, so NEFs stay intact.
+Pictures already on the Pi show on this tab. A JPEG is the picture itself. A NEF shows the small preview stored inside the file when the Pi can read one. **Show pictures on the camera** loads the newest 24 thumbnails from the card. A thumbnail is not a full copy. **Copy, then download** pulls that file onto the Pi and saves it to the phone or laptop. **Offload camera card to the Pi** copies every picture onto the Pi, then deletes only the copies that arrived. A picture that fails to copy stays on the camera. That is how you free the camera card in the field. The copies stay on the Pi until you drag them into Photos from `smb://nikon-d3400.local/shots`. **Download all on the Pi** is a zip of those files. The zip is stored, not recompressed, so NEFs stay intact.
 
 ### Wi-Fi
 
-Add a network, see whether the Pi is the access point or a client, change the page password, and run **Update from git**.
+**Scan for networks** lists what the Pi can hear and fills the network name. Enter the password, then **Remember this network**. A scan while the Pi is the Nikon-D3400 access point can drop the phone for a moment. Rejoin that access point if the page disappears. The tab also shows whether the Pi is the access point or a client, changes the page password, and runs **Check for updates** and **Update from git**.
 
 ## What lives where
 

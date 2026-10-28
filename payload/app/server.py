@@ -5,16 +5,18 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 from camera import Camera, CameraError
+import firmware
 import geo
 from guide import plan, rephrase
 from jobs import Jobs
 from update import REPO, UpdateError, apply_update, check_update, read_revision
-from wifi import AP_ADDRESS, bringup, load_networks, save_networks, wifi_state
+from wifi import AP_ADDRESS, bringup, load_networks, save_networks, scan_wifi, wifi_state
 
 DATA = os.environ.get("NIKON_DATA", "/var/lib/nikon-d3400")
 WIFI_PATH = os.environ.get("NIKON_WIFI", os.path.join(DATA, "wifi.json"))
@@ -98,8 +100,14 @@ class Handler(BaseHTTPRequestHandler):
             self._shot(unquote(path[len("/shots/"):]), download="download" in query)
         elif path == "/api/camera-files":
             self._guard(lambda: {"files": CAMERA.list_files()})
+        elif path == "/api/camera-thumb":
+            self._camera_thumb()
         elif path == "/api/shots.zip":
             self._zip_shots()
+        elif path == "/api/firmware":
+            self._firmware()
+        elif path == "/api/wifi/scan":
+            self._wifi_scan()
         elif path == "/api/wifi":
             self._guard(lambda: wifi_state(WIFI_PATH), wifi=True)
         elif path == "/api/geo":
@@ -149,6 +157,8 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: geo.before_shot(CAMERA))
         elif path == "/api/geo/stamp":
             self._stamp_saved()
+        elif path == "/api/movie":
+            self._guard(lambda: CAMERA.set_movie(bool(body.get("recording"))))
         elif path == "/api/focus":
             self._guard(lambda: CAMERA.focus(str(body.get("direction", ""))))
         elif path == "/api/camera-files/pull":
@@ -257,6 +267,42 @@ class Handler(BaseHTTPRequestHandler):
                 result["capture"] = {"error": str(exc)}
         self._send(200, result)
 
+    def _firmware(self):
+        try:
+            summary = CAMERA.summary()
+            camera = firmware.parse_camera(summary)
+            published = firmware.published_version()
+            self._send(200, firmware.compare(camera, published))
+        except CameraError as exc:
+            self._send(502, {"error": str(exc)})
+        except Exception as exc:
+            self._send(502, {"error": str(exc)})
+
+    def _wifi_scan(self):
+        try:
+            self._send(200, {"networks": scan_wifi()})
+        except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
+            self._send(502, {"error": str(exc)})
+
+    def _camera_thumb(self):
+        query = parse_qs(urlparse(self.path).query)
+        folder = (query.get("folder") or [""])[0]
+        if not folder.startswith("/") or ".." in folder:
+            self._send(400, {"error": "Bad folder"})
+            return
+        try:
+            index = int((query.get("index") or [""])[0])
+        except ValueError:
+            self._send(400, {"error": "Bad index"})
+            return
+        dest = os.path.join(DATA, "thumb.jpg")
+        try:
+            CAMERA.thumbnail(folder, index, dest)
+        except CameraError as exc:
+            self._send(502, {"error": str(exc)})
+            return
+        self._file(dest, "image/jpeg")
+
     def _add_wifi(self, body):
         ssid = str(body.get("ssid", "")).strip()
         secret = str(body.get("password", ""))
@@ -306,9 +352,26 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(path):
             self._send(404, {"error": "No such frame"})
             return
+        query = parse_qs(urlparse(self.path).query)
+        if "preview" in query and not name.lower().endswith((".jpg", ".jpeg")):
+            preview = self._embedded_preview(path)
+            if preview:
+                self._send(200, preview, "image/jpeg")
+                return
         kind = "image/jpeg" if name.lower().endswith((".jpg", ".jpeg")) else "application/octet-stream"
         disposition = f'attachment; filename="{name}"' if download else ""
         self._file(path, kind, disposition)
+
+    def _embedded_preview(self, path):
+        if not shutil.which("exiftool"):
+            return b""
+        try:
+            proc = subprocess.run(["exiftool", "-b", "-PreviewImage", path], capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return b""
+        if proc.returncode == 0 and proc.stdout[:2] == b"\xff\xd8":
+            return proc.stdout
+        return b""
 
     def _zip_shots(self):
         folder = os.path.join(DATA, "shots")

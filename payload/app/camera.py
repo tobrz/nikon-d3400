@@ -277,6 +277,24 @@ class Camera:
         geo.stamp(dest)
         return {"name": os.path.basename(dest), "path": dest, "bytes": os.path.getsize(dest)}
 
+    def set_movie(self, recording):
+        """Start or stop video. movie=1 is the body's record control, not the still shutter."""
+        value = "1" if recording else "0"
+        with self._lock:
+            self.run(["--set-config", f"movie={value}"], timeout=30)
+        return {"recording": bool(recording)}
+
+    def thumbnail(self, folder, index, dest):
+        """Small JPEG from the camera card. This does not copy the full picture."""
+        with self._lock:
+            self.run(
+                ["--folder", folder, "--get-thumbnail", str(index), "--filename", dest, "--force-overwrite"],
+                timeout=30,
+            )
+        if not os.path.isfile(dest) or os.path.getsize(dest) <= 0:
+            raise CameraError("The camera did not return a thumbnail.")
+        return dest
+
     def delete_file(self, folder, index):
         with self._lock:
             self.run(["--folder", folder, "--delete-file", str(index)], timeout=40)
