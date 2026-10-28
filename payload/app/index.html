@@ -25,11 +25,30 @@
   header, main, #update-log { padding: 16px; max-width: 880px; margin: 0 auto; }
   #update-log { padding-top: 0; }
   #update-state { white-space: pre-wrap; }
-  header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   h1 { font-size: 28px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
   h2 { font-size: 22px; margin: 0 0 8px; }
   .pill { color: var(--dim); font-size: 14px; }
-  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+  nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin: 8px 0 16px;
+  }
+  nav button { width: 100%; margin: 0; }
+  @media (max-width: 640px) {
+    nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 420px) {
+    nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   button, input, select {
     font: inherit;
     color: var(--ink);
@@ -85,7 +104,8 @@
   .gallery figure { margin: 0; }
   .gallery img { width: 100%; aspect-ratio: 3/2; object-fit: cover; border-radius: 10px; background: #000; display: block; }
   .gallery button { width: 100%; margin-top: 4px; }
-  img.frame { width: 100%; border-radius: 12px; background: #000; }
+  img.frame, video { width: 100%; border-radius: 12px; background: #000; }
+  video { margin-top: 8px; }
   pre { white-space: pre-wrap; font: 14px/1.4 ui-monospace, monospace; color: var(--dim); }
 </style>
 </head>
@@ -105,22 +125,26 @@
     <h1>D3400</h1>
     <div id="status" class="pill">Looking for the camera</div>
   </div>
-  <button class="ghost" id="refresh" type="button">Refresh</button>
-  <button class="ghost" id="update-check" type="button">Check for updates</button>
+  <div class="header-actions">
+    <button class="ghost" id="refresh" type="button">Refresh</button>
+    <button class="ghost" id="update-check" type="button">Check for updates</button>
+  </div>
 </header>
 <pre id="update-log" hidden></pre>
 <main>
   <nav>
     <button type="button" data-tab="guide">Guide</button>
     <button class="ghost" type="button" data-tab="live">Live view</button>
+    <button class="ghost" type="button" data-tab="shoot">Shoot</button>
     <button class="ghost" type="button" data-tab="controls">Menu</button>
-    <button class="ghost" type="button" data-tab="raw">Raw</button>
     <button class="ghost" type="button" data-tab="timelapse">Timelapse</button>
+    <button class="ghost" type="button" data-tab="bracket">Bracket</button>
     <button class="ghost" type="button" data-tab="lightning">Lightning</button>
     <button class="ghost" type="button" data-tab="night">Night</button>
     <button class="ghost" type="button" data-tab="shots">Shots</button>
     <button class="ghost" type="button" data-tab="place">Place</button>
     <button class="ghost" type="button" data-tab="wifi">Wi-Fi</button>
+    <button class="ghost" type="button" data-tab="raw">Raw</button>
   </nav>
 
   <section id="guide" class="panel shoot on">
@@ -171,9 +195,32 @@
     </div>
   </section>
 
-  <section id="controls" class="panel shoot">
+  <section id="shoot" class="panel shoot">
     <div class="scene-slot"></div>
     <div class="work">
+      <h2>Take a picture</h2>
+      <p class="muted">Automatic uses the shutter already on the camera. Pick a time and the Pi sets that speed, then waits until the shutter closes. Over 30 seconds, it opens the shutter, waits, and closes it.</p>
+      <label for="shoot-shutter">Shutter</label>
+      <select id="shoot-shutter">
+        <option value="auto">Automatic</option>
+        <option value="0.001">1/1000</option>
+        <option value="0.01">1/100</option>
+        <option value="0.1">1/10</option>
+        <option value="1">1 second</option>
+        <option value="2">2 seconds</option>
+        <option value="5">5 seconds</option>
+        <option value="10">10 seconds</option>
+        <option value="30">30 seconds</option>
+        <option value="custom">Custom seconds</option>
+      </select>
+      <label id="shoot-seconds-label" for="shoot-seconds" hidden>Seconds to leave the shutter open</label>
+      <input id="shoot-seconds" type="number" min="0.1" max="900" step="0.1" value="2" hidden>
+      <div class="row"><button type="button" id="shoot-go">Take a picture</button></div>
+      <p id="shoot-state" class="muted"></p>
+    </div>
+  </section>
+
+  <section id="controls" class="panel">
     <h2>Every menu item the body offers</h2>
     <p class="muted">Choices, on/off switches, number ranges, and text are all writable when the camera says they are. Read-only rows are shown and left alone. This list is the menu, read over USB, not a fixed catalog.</p>
     <label for="menu-filter">Find a setting</label>
@@ -181,7 +228,6 @@
     <div id="controls-out"></div>
     <div class="row"><button type="button" id="capture">Release shutter</button></div>
     <pre id="summary"></pre>
-    </div>
   </section>
 
   <section id="raw" class="panel">
@@ -200,15 +246,46 @@
     <div class="scene-slot"></div>
     <div class="work">
     <h2>Tripod timelapse</h2>
-    <label for="interval">Seconds between frames</label>
-    <input id="interval" type="number" min="3" value="10">
+    <p class="muted">The next frame starts only after this shutter has closed. Stop finishes the open exposure, then ends the run. Two or more frames become a movie.</p>
+    <label for="tl-seconds">Seconds to leave the shutter open. Leave blank to use the camera.</label>
+    <input id="tl-seconds" type="number" min="0.1" max="900" step="0.1" placeholder="Automatic">
+    <label for="interval">Seconds after the shutter closes, before the next frame</label>
+    <input id="interval" type="number" min="1" value="10">
     <label for="count">How many frames (0 keeps going until you stop)</label>
     <input id="count" type="number" min="0" value="0">
+    <label for="tl-fps">Movie playback, frames per second</label>
+    <input id="tl-fps" type="number" min="1" max="60" value="24">
     <div class="row">
       <button type="button" id="tl-start">Start</button>
       <button class="ghost" type="button" id="tl-stop">Stop</button>
     </div>
     <p id="tl-state" class="muted"></p>
+    <button type="button" id="tl-movie" hidden>Play the movie</button>
+    <video id="tl-video" controls hidden></video>
+    </div>
+  </section>
+
+  <section id="bracket" class="panel shoot">
+    <div class="scene-slot"></div>
+    <div class="work">
+    <h2>Bracket</h2>
+    <p class="muted">In M or S the Pi steps the shutter. In A or P it steps exposure compensation, then puts that setting back. Frames run from dark to bright. The mode dial stays where you set it.</p>
+    <label for="br-count">Frames</label>
+    <select id="br-count">
+      <option value="3">3</option>
+      <option value="5">5</option>
+    </select>
+    <label for="br-step">Stops between frames</label>
+    <select id="br-step">
+      <option value="0.333">1/3</option>
+      <option value="0.667">2/3</option>
+      <option value="1" selected>1</option>
+    </select>
+    <div class="row">
+      <button type="button" id="br-start">Start</button>
+      <button class="ghost" type="button" id="br-stop">Stop</button>
+    </div>
+    <p id="br-state" class="muted"></p>
     </div>
   </section>
 
@@ -331,7 +408,7 @@ document.addEventListener("pointerdown", (ev) => {
   clearTimeout(btn._ack);
   btn._ack = setTimeout(() => btn.classList.remove("ack"), 700);
 });
-const shootTabs = ["guide", "live", "controls", "timelapse", "lightning", "night"];
+const shootTabs = ["guide", "live", "shoot", "timelapse", "bracket", "lightning", "night"];
 function show(tab) {
   document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("on", el.id === tab));
   document.querySelectorAll("nav button").forEach((el) => {
@@ -372,7 +449,16 @@ async function refresh() {
     const line = $("rev-line");
     if (line) line.textContent = data.revision ? ("Installed revision " + data.revision) : "Installed revision: factory image, not yet updated from git.";
     const jobs = data.jobs || {};
-    $("tl-state").textContent = jobs.timelapse ? JSON.stringify(jobs.timelapse) : "";
+    const tl = jobs.timelapse || {};
+    if ($("tl-state")) $("tl-state").textContent = tl.note || tl.error || "";
+    const movie = $("tl-movie");
+    if (movie && tl.movie && movie.dataset.name !== tl.movie) {
+      movie.dataset.name = tl.movie;
+      movie.hidden = false;
+      movie.textContent = "Play " + tl.movie;
+    }
+    const br = jobs.bracket || {};
+    if ($("br-state")) $("br-state").textContent = br.note || br.error || "";
     $("ln-state").textContent = jobs.lightning ? JSON.stringify(jobs.lightning) : "";
     const off = jobs.offload || {};
     const offLine = $("offload-state");
@@ -567,15 +653,87 @@ document.querySelectorAll("[data-focus]").forEach((btn) => {
   };
 });
 $("capture").onclick = async () => {
-  try { alert(JSON.stringify(await api("/api/capture", {method: "POST", body: {}}))); }
-  catch (err) { alert(err.message); }
+  try {
+    const data = await api("/api/capture", {method: "POST", body: {}});
+    const files = (data.files || []).map((path) => path.split("/").pop()).join(", ");
+    alert(files ? "Saved " + files : "The picture was taken.");
+  } catch (err) { alert(err.message); }
+};
+
+function shootSeconds() {
+  const choice = $("shoot-shutter").value;
+  if (choice === "auto") return null;
+  if (choice === "custom") return Number($("shoot-seconds").value);
+  return Number(choice);
+}
+$("shoot-shutter").onchange = () => {
+  const custom = $("shoot-shutter").value === "custom";
+  $("shoot-seconds").hidden = !custom;
+  $("shoot-seconds-label").hidden = !custom;
+};
+$("shoot-go").onclick = async () => {
+  stopLive();
+  $("shoot-go").disabled = true;
+  const seconds = shootSeconds();
+  $("shoot-state").textContent = seconds == null
+    ? "Taking a picture with the camera's shutter, and waiting until it closes."
+    : "Opening the shutter for " + seconds + " seconds, then closing it.";
+  try {
+    const data = await api("/api/capture", {method: "POST", body: {seconds}});
+    const files = (data.files || []).map((path) => path.split("/").pop()).join(", ");
+    $("shoot-state").textContent = "Saved " + (files || "the picture") + ". Shutter was " + (data.shutter || "the camera's") + ".";
+  } catch (err) {
+    $("shoot-state").textContent = err.message;
+  }
+  $("shoot-go").disabled = false;
 };
 
 $("tl-start").onclick = async () => {
-  try { $("tl-state").textContent = JSON.stringify(await api("/api/timelapse/start", {method: "POST", body: {interval: Number($("interval").value), count: Number($("count").value)}})); }
+  stopLive();
+  const raw = $("tl-seconds").value.trim();
+  const body = {
+    interval: Number($("interval").value),
+    count: Number($("count").value),
+    fps: Number($("tl-fps").value || 24),
+  };
+  if (raw) body.seconds = Number(raw);
+  $("tl-state").textContent = raw
+    ? "Starting. Each frame holds the shutter for " + raw + " seconds."
+    : "Starting. Each frame uses the shutter already on the camera, and waits until it closes.";
+  try { await api("/api/timelapse/start", {method: "POST", body}); refresh(); }
   catch (err) { $("tl-state").textContent = err.message; }
 };
-$("tl-stop").onclick = async () => { $("tl-state").textContent = JSON.stringify(await api("/api/timelapse/stop", {method: "POST", body: {}})); };
+$("tl-stop").onclick = async () => {
+  try { await api("/api/timelapse/stop", {method: "POST", body: {}}); refresh(); }
+  catch (err) { $("tl-state").textContent = err.message; }
+};
+$("tl-movie").onclick = async () => {
+  const name = $("tl-movie").dataset.name;
+  if (!name) return;
+  $("tl-state").textContent = "Loading the movie.";
+  try {
+    const res = await api("/shots/" + encodeURIComponent(name));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const video = $("tl-video");
+    video.hidden = false;
+    video.src = url;
+    video.play().catch(() => {});
+    $("tl-state").textContent = "Playing " + name + ".";
+  } catch (err) { $("tl-state").textContent = err.message; }
+};
+$("br-start").onclick = async () => {
+  stopLive();
+  $("br-state").textContent = "Starting the bracket. Each frame waits until the shutter closes.";
+  try {
+    await api("/api/bracket/start", {method: "POST", body: {count: Number($("br-count").value), step: Number($("br-step").value)}});
+    refresh();
+  } catch (err) { $("br-state").textContent = err.message; }
+};
+$("br-stop").onclick = async () => {
+  try { await api("/api/bracket/stop", {method: "POST", body: {}}); refresh(); }
+  catch (err) { $("br-state").textContent = err.message; }
+};
 $("ln-start").onclick = async () => {
   try { $("ln-state").textContent = JSON.stringify(await api("/api/lightning/start", {method: "POST", body: {frames: Number($("frames").value), gap: Number($("gap").value)}})); }
   catch (err) { $("ln-state").textContent = err.message; }
@@ -609,7 +767,11 @@ async function authedImage(url) {
 async function loadShots() {
   const data = await api("/api/shots");
   const shots = data.shots || [];
-  $("shots-out").innerHTML = shots.length ? `<div class="gallery">${shots.map((shot) => `<figure class="shot"><img alt="${shot.name}" data-pi="${shot.name}"><figcaption class="muted">${shot.name}</figcaption><button type="button" data-save="${shot.name}">Download</button></figure>`).join("")}</div>` : "<p class='muted'>No frames on the Pi yet.</p>";
+  $("shots-out").innerHTML = shots.length ? `<div class="gallery">${shots.map((shot) => {
+    const movie = /\.mp4$/i.test(shot.name);
+    const picture = movie ? "" : `<img alt="${shot.name}" data-pi="${shot.name}">`;
+    return `<figure class="shot">${picture}<figcaption class="muted">${shot.name}</figcaption><button type="button" data-save="${shot.name}">${movie ? "Play or download" : "Download"}</button></figure>`;
+  }).join("")}</div>` : "<p class='muted'>No frames on the Pi yet.</p>";
   $("shots-out").querySelectorAll("[data-save]").forEach((btn) => { btn.onclick = () => saveToPhone(btn.dataset.save); });
   for (const img of $("shots-out").querySelectorAll("[data-pi]")) {
     const name = img.dataset.pi;

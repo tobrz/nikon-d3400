@@ -175,7 +175,7 @@ def _timelapse(focal_label, _shutter, _text):
             },
             {
                 "title": "Pick the interval",
-                "body": "Clouds: 3 to 5 seconds. Moving sun or a plant: 15 to 60 seconds. A night sky run: match the shutter, then add 3 seconds. The page will refuse an interval shorter than 3 seconds.",
+                "body": "The gap is the time after the shutter closes, before the next frame. Clouds: 3 to 5 seconds. Moving sun or a plant: 15 to 60 seconds. A night sky run: let the exposure finish, then wait a couple of seconds. The page allows a gap as short as 1 second.",
             },
             {
                 "title": "Power",

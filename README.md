@@ -147,7 +147,7 @@ The same planner also covers lightning, timelapse, a general night frame, and a 
 
 ### Live view
 
-Guide, Menu, Timelapse, Lightning, Night, and Live view each show the scene beside that page's own controls. Press **Start** on the picture. It keeps running while you move between those pages. **Record video** and the focus steps are on the Live view tab. The clip stays on the camera card.
+Guide, Shoot, Timelapse, Bracket, Lightning, Night, and Live view each show the scene beside that page's own controls. Menu does not. Press **Start** on the picture. It keeps running while you move between those shooting pages, and it stops when you open Menu or another page without the picture. **Record video** and the focus steps are on the Live view tab. The clip stays on the camera card.
 
 ### Live view details
 
@@ -163,13 +163,21 @@ The Raw tab is the body's own report: the gphoto2 summary, the capture abilities
 
 ### Menu
 
-Every setting `gphoto2 --list-all-config` returns: choices, switches, number ranges, text, and read-only rows. A search box filters the list. Changing a writable row sends that value immediately. Read-only rows are shown and left alone. **Release shutter** takes one picture.
+Every setting `gphoto2 --list-all-config` returns: choices, switches, number ranges, text, and read-only rows. A search box filters the list. Changing a writable row sends that value immediately. Read-only rows are shown and left alone. This page has no live view. **Release shutter** takes one picture with the shutter already on the camera and waits until it closes.
 
-Capture tries `--capture-image-and-download` first, then `--trigger-capture` if the body hangs on the download form. The page reports which one ran.
+### Shoot
+
+One picture, with the scene beside the button. **Automatic** uses the shutter speed already on the body. A chosen time is set over USB, then the Pi waits until that exposure finishes. The D3400 times speeds up to 30 seconds itself. Longer than that uses Bulb: one press opens the shutter, the Pi waits, and a second press closes it. Those two presses are one camera session. A lone trigger is not used, because on this body that opens the shutter and returns before it closes.
+
+While a picture is in progress, the page does not start a second camera command. That includes the status probe that used to run every few seconds.
 
 ### Timelapse
 
-Tripod interval shooting. The D3400 has no interval timer of its own. The shortest gap is 3 seconds. A count of 0 runs until **Stop**. Each frame is downloaded to the Pi. One run at a time: timelapse and lightning share the camera.
+Tripod interval shooting. The D3400 has no interval timer of its own. **Seconds to leave the shutter open** can be blank, which means the speed already on the camera. The gap is the time after the shutter closes, before the next frame, and it can be as short as 1 second. A count of 0 runs until **Stop**. Stop finishes the exposure that is already open, then ends the run. Each frame is downloaded to the Pi. Two or more JPEG frames are compiled with ffmpeg into an mp4 at the playback rate you set, usually 24 frames a second. The movie is named `timelapse-<time>.mp4` in the shots folder. One run at a time: timelapse, bracket, and lightning share the camera.
+
+### Bracket
+
+Three or five frames, from dark to bright, one or one-third or two-thirds of a stop apart. In M or S the Pi steps the shutter speed. A step that would be longer than 30 seconds is a Bulb exposure with an open and a close. In A or P the Pi steps exposure compensation. The original shutter or compensation is put back when the run ends, including when it stops early. The mode dial is not moved.
 
 ### Lightning
 

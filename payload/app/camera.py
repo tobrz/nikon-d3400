@@ -146,6 +146,162 @@ def adopt_preview(requested):
     return ""
 
 
+SHUTTER_PATH = "/main/capturesettings/shutterspeed"
+EXPOSURE_COMPENSATION_PATH = "/main/capturesettings/exposurecompensation"
+PROGRAM_PATH = "/main/capturesettings/expprogram"
+
+
+def shutter_seconds(label):
+    """Seconds for a shutter label such as 30.0000s or 1/100. Bulb and Time are None."""
+    text = (label or "").strip().lower().replace(" ", "")
+    if not text or text in ("bulb", "time", "auto", "automatic"):
+        return None
+    if text.endswith("s") and not text.startswith("1/"):
+        text = text[:-1]
+    if text.startswith("1/"):
+        try:
+            return 1.0 / float(text[2:])
+        except ValueError:
+            return None
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
+def format_shutter(seconds):
+    """A short phrase for a shutter time, such as 2 seconds or 1/100."""
+    if seconds is None:
+        return "the camera's shutter"
+    if seconds >= 0.95:
+        whole = round(seconds)
+        if abs(seconds - whole) < 0.05:
+            unit = "second" if whole == 1 else "seconds"
+            return f"{whole} {unit}"
+        return f"{seconds:.1f} seconds"
+    if seconds > 0:
+        nearest = int(round(1 / seconds))
+        if nearest > 0 and abs(seconds - (1 / nearest)) <= 0.0008:
+            return f"1/{nearest}"
+    return f"{seconds:g} seconds"
+
+
+def nearest_shutter_label(seconds, choices):
+    """Closest timed shutter choice. None when the request is longer than the body can time."""
+    best_label = None
+    best_gap = None
+    longest = 0.0
+    for label in choices:
+        duration = shutter_seconds(label)
+        if duration is None:
+            continue
+        longest = max(longest, duration)
+        gap = abs(duration - float(seconds))
+        if best_label is None or gap < best_gap:
+            best_label = label
+            best_gap = gap
+    if best_label is None or float(seconds) > longest + 0.05:
+        return None
+    return best_label
+
+
+def nearest_number_label(target, choices):
+    parsed = []
+    for label in choices:
+        try:
+            parsed.append((float(label), str(label)))
+        except (TypeError, ValueError):
+            continue
+    if not parsed:
+        raise ValueError("The camera did not offer those steps.")
+    return min(parsed, key=lambda item: (abs(item[0] - target), item[1]))[1]
+
+
+def parse_ev_step(step):
+    if isinstance(step, str):
+        text = step.strip()
+        named = {"1/3": 1 / 3, "2/3": 2 / 3, "1": 1.0, "1.0": 1.0}
+        if text in named:
+            return named[text]
+        step = float(text)
+    step = float(step)
+    for candidate in (1 / 3, 2 / 3, 1.0):
+        if abs(step - candidate) < 0.05:
+            return candidate
+    raise ValueError("Step must be 1/3, 2/3, or 1 stop.")
+
+
+def optional_seconds(value):
+    """None leaves the camera's shutter alone. A number is how long to hold it open."""
+    if value in (None, "", "auto"):
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise CameraError("Shutter seconds need to be a number.") from exc
+    if seconds <= 0 or seconds > 900:
+        raise CameraError("Use a shutter from a fraction of a second up to 15 minutes.")
+    return seconds
+
+
+def bracket_plan(program, shutter_label, shutter_choices, ec_label, ec_choices, count, step):
+    """Frames for one bracket, dark to bright.
+
+    Manual and shutter-priority step the shutter. Aperture and program step
+    exposure compensation. The dial itself is not moved.
+    """
+    count = int(count)
+    if count not in (3, 5):
+        raise ValueError("Take 3 or 5 frames.")
+    step = parse_ev_step(step)
+    mode = (program or "").strip().upper()
+    offsets = [step * (index - (count // 2)) for index in range(count)]
+    if mode in ("M", "S"):
+        current = shutter_seconds(shutter_label)
+        if current is None:
+            raise ValueError(
+                "The shutter is on "
+                + (shutter_label or "Bulb")
+                + ". Set a timed speed first. Bulb and Time need a number of seconds on Shoot."
+            )
+        frames = []
+        for ev in offsets:
+            target = current * (2 ** ev)
+            label = nearest_shutter_label(target, shutter_choices)
+            if label is None:
+                frames.append({"control": "bulb", "seconds": round(target, 3), "ev": ev})
+            else:
+                frames.append({
+                    "control": "shutterspeed",
+                    "value": label,
+                    "seconds": shutter_seconds(label),
+                    "ev": ev,
+                })
+        return {"mode": mode, "control": "shutterspeed", "restore": shutter_label, "frames": frames}
+    if mode in ("A", "P"):
+        try:
+            current = float(ec_label)
+        except (TypeError, ValueError):
+            current = 0.0
+        frames = []
+        for ev in offsets:
+            frames.append({
+                "control": "exposurecompensation",
+                "value": nearest_number_label(current + ev, ec_choices),
+                "ev": ev,
+            })
+        return {
+            "mode": mode,
+            "control": "exposurecompensation",
+            "restore": str(ec_label),
+            "frames": frames,
+        }
+    raise ValueError("Turn the mode dial to M, A, S, or P. The page cannot move the dial.")
+
+
 def live_view_block_reason(current):
     """Return a user-facing reason when live view is actually prohibited.
 
@@ -202,15 +358,25 @@ class Camera:
         return done.stdout
 
     def connected(self):
+        """Who is on USB. Skip the probe while a picture holds the camera.
+
+        A second gphoto2 process during an exposure can take the USB device
+        and leave the shutter open.
+        """
+        if not self._lock.acquire(blocking=False):
+            return {"model": "Busy with the shutter", "port": ""}
         try:
-            text = self.run(["--auto-detect"], timeout=12)
-        except CameraError:
+            try:
+                text = self.run(["--auto-detect"], timeout=12)
+            except CameraError:
+                return None
+            for line in text.splitlines():
+                if "usb:" in line.lower() and not line.lower().startswith("model"):
+                    model = line.rsplit("usb:", 1)[0].strip()
+                    return {"model": model, "port": "usb:" + line.rsplit("usb:", 1)[1].strip()}
             return None
-        for line in text.splitlines():
-            if "usb:" in line.lower() and not line.lower().startswith("model"):
-                model = line.rsplit("usb:", 1)[0].strip()
-                return {"model": model, "port": "usb:" + line.rsplit("usb:", 1)[1].strip()}
-        return None
+        finally:
+            self._lock.release()
 
     def summary(self):
         with self._lock:
@@ -269,22 +435,116 @@ class Camera:
                 return {"set": item["path"], "value": "now", "label": item.get("label", key)}
         raise CameraError("This body did not offer a writable date and time control.")
 
-    def capture(self):
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        filename = os.path.join(self.shots_dir, f"shot-{stamp}.%C")
+    def capture(self, seconds=None, name=None):
+        """Take one still and return only after the shutter has closed.
+
+        seconds None uses the speed already on the camera. On this D3400, Bulb
+        and Time open on one press and close on the next, so a number of
+        seconds is required before that press. A single trigger-capture is not
+        used as a fallback: that press opens the shutter and returns at once.
+        """
+        seconds = optional_seconds(seconds)
+        if name:
+            stem = os.path.basename(str(name))
+            if not stem or stem in (".", "..") or stem != str(name):
+                raise CameraError("Bad picture name.")
+        else:
+            stem = "shot-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = os.path.join(self.shots_dir, stem + ".%C")
+        os.makedirs(self.shots_dir, exist_ok=True)
         with self._lock:
-            try:
-                text = self.run(
-                    ["--capture-image-and-download", "--filename", filename, "--force-overwrite"],
-                    timeout=90,
-                )
-                mode = "capture-image-and-download"
-            except CameraError:
-                text = self.run(["--trigger-capture"], timeout=30)
-                mode = "trigger-capture"
-        saved = _saved_paths(text, self.shots_dir)
+            shutter = self._config_unlocked(SHUTTER_PATH)
+            choices = [item["label"] for item in shutter.get("choices") or []]
+            current = shutter.get("current") or ""
+            if seconds is None:
+                duration = shutter_seconds(current)
+                if duration is None:
+                    raise CameraError(
+                        "The shutter is on "
+                        + (current or "Bulb")
+                        + ". Choose how many seconds to leave it open so the page can close it."
+                    )
+                text = self._timed_capture_unlocked(filename, None, duration)
+                used = current
+            else:
+                label = nearest_shutter_label(seconds, choices)
+                if label is None:
+                    text = self._bulb_capture_unlocked(filename, seconds, restore=current)
+                    used = format_shutter(seconds)
+                else:
+                    duration = shutter_seconds(label) or seconds
+                    text = self._timed_capture_unlocked(filename, label, duration)
+                    used = label
+        saved = _collected_files(text, self.shots_dir, stem)
         geo.stamp_many(saved)
-        return {"mode": mode, "output": text.strip(), "files": saved}
+        return {"mode": "capture", "output": (text or "").strip(), "files": saved, "shutter": used}
+
+    def current_shutter(self):
+        with self._lock:
+            shutter = self._config_unlocked(SHUTTER_PATH)
+        return shutter.get("current") or ""
+
+    def plan_bracket(self, count, step):
+        with self._lock:
+            program = self._config_unlocked(PROGRAM_PATH)
+            shutter = self._config_unlocked(SHUTTER_PATH)
+            compensation = self._config_unlocked(EXPOSURE_COMPENSATION_PATH)
+        try:
+            return bracket_plan(
+                program.get("current"),
+                shutter.get("current"),
+                [item["label"] for item in shutter.get("choices") or []],
+                compensation.get("current"),
+                [item["label"] for item in compensation.get("choices") or []],
+                count,
+                step,
+            )
+        except ValueError as exc:
+            raise CameraError(str(exc)) from exc
+
+    def _config_unlocked(self, path):
+        text = self.run(["--get-config", path], timeout=20)
+        blocks = parse_configs(path + "\n" + text)
+        if not blocks:
+            raise CameraError("The camera did not return " + path + ".")
+        return blocks[0]
+
+    def _timed_capture_unlocked(self, filename, label, duration):
+        args = []
+        if label:
+            args.extend(["--set-config", SHUTTER_PATH + "=" + label])
+        args.extend(["--capture-image-and-download", "--filename", filename, "--force-overwrite"])
+        return self.run(args, timeout=max(45, int(duration) + 45))
+
+    def _bulb_capture_unlocked(self, filename, seconds, restore):
+        """Open on one press, wait, close on the next press. One gphoto2 process."""
+        whole = max(1, int(round(float(seconds))))
+        args = [
+            "--set-config", SHUTTER_PATH + "=Bulb",
+            "--filename", filename,
+            "--force-overwrite",
+            "--trigger-capture",
+            "--wait-event=" + str(whole) + "s",
+            "--trigger-capture",
+            "--wait-event-and-download=30s",
+        ]
+        try:
+            text = self.run(args, timeout=whole + 90)
+        except CameraError as exc:
+            if "did not answer in time" in str(exc):
+                try:
+                    self.run(["--trigger-capture"], timeout=20)
+                except CameraError:
+                    pass
+                raise CameraError("The shutter was told to close. " + str(exc)) from exc
+            raise
+        finally:
+            if restore and shutter_seconds(restore) is not None:
+                try:
+                    self.run(["--set-config", SHUTTER_PATH + "=" + restore], timeout=20)
+                except CameraError:
+                    pass
+        return text
 
     def trigger(self):
         with self._lock:
@@ -481,6 +741,22 @@ class Camera:
             saved.append(dest)
             geo.stamp(dest)
         return saved
+
+
+def _collected_files(text, folder, stem):
+    """Paths gphoto2 saved for one still, from its log and from the shots folder."""
+    found = _saved_paths(text, folder)
+    prefix = stem + "."
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):
+            if not name.startswith(prefix):
+                continue
+            path = os.path.join(folder, name)
+            if path not in found and os.path.isfile(path) and os.path.getsize(path) > 0:
+                found.append(path)
+    if not found:
+        raise CameraError("The shutter closed, but no picture file was saved on the Pi.")
+    return found
 
 
 def _saved_paths(text, folder):

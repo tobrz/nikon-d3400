@@ -10,7 +10,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from camera import Camera, CameraError, jpeg_payload, thumb_cache_key
+from camera import Camera, CameraError, jpeg_payload, optional_seconds, thumb_cache_key
 import firmware
 import geo
 from guide import plan, rephrase
@@ -149,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/config":
             self._guard(lambda: CAMERA.set_config(str(body.get("path", "")), str(body.get("value", ""))))
         elif path == "/api/capture":
-            self._guard(self._capture)
+            self._guard(lambda: self._capture(body))
         elif path == "/api/geo":
             self._save_geo(body)
         elif path == "/api/geo/clock":
@@ -170,9 +170,18 @@ class Handler(BaseHTTPRequestHandler):
             settings = body.get("settings") or {}
             self._guard(lambda: CAMERA.apply_settings({str(k): str(v) for k, v in settings.items()}))
         elif path == "/api/timelapse/start":
-            self._guard(lambda: JOBS.start_timelapse(body.get("interval", 10), body.get("count", 0)))
+            self._guard(lambda: JOBS.start_timelapse(
+                body.get("interval", 10),
+                body.get("count", 0),
+                body.get("seconds"),
+                body.get("fps", 24),
+            ))
         elif path == "/api/timelapse/stop":
             self._send(200, JOBS.stop_timelapse())
+        elif path == "/api/bracket/start":
+            self._guard(lambda: JOBS.start_bracket(body.get("count", 3), body.get("step", 1)))
+        elif path == "/api/bracket/stop":
+            self._send(200, JOBS.stop_bracket())
         elif path == "/api/lightning/start":
             self._guard(lambda: JOBS.start_lightning(body.get("frames", 30), body.get("gap", 0.4)))
         elif path == "/api/lightning/stop":
@@ -205,9 +214,10 @@ class Handler(BaseHTTPRequestHandler):
             "repo": REPO,
         }
 
-    def _capture(self):
+    def _capture(self, body=None):
+        body = body or {}
         clock = geo.before_shot(CAMERA)
-        result = CAMERA.capture()
+        result = CAMERA.capture(seconds=optional_seconds(body.get("seconds")))
         result["clock"] = clock
         return result
 
@@ -428,7 +438,13 @@ class Handler(BaseHTTPRequestHandler):
             if preview:
                 self._send(200, preview, "image/jpeg")
                 return
-        kind = "image/jpeg" if name.lower().endswith((".jpg", ".jpeg")) else "application/octet-stream"
+        lowered = name.lower()
+        if lowered.endswith((".jpg", ".jpeg")):
+            kind = "image/jpeg"
+        elif lowered.endswith(".mp4"):
+            kind = "video/mp4"
+        else:
+            kind = "application/octet-stream"
         disposition = f'attachment; filename="{name}"' if download else ""
         self._file(path, kind, disposition)
 
