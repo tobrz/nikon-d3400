@@ -38,9 +38,22 @@
     border-radius: 10px;
     padding: 10px 12px;
   }
+  button, a.ghost {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 80ms ease;
+  }
   button { background: var(--amber); color: #1a140c; border: 0; font-weight: 650; }
-  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  button:disabled { opacity: 0.5; }
+  button:hover { background: #f2b85a; }
+  button:active { background: #b78322; transform: translateY(1px); }
+  button.ack { background: var(--good); color: #14210f; transform: none; }
+  button.ghost, a.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  a.ghost { display: inline-block; text-align: center; text-decoration: none; padding: 10px 12px; border-radius: 10px; }
+  button.ghost:hover, a.ghost:hover { background: #322b22; border-color: var(--amber); color: #f6d7a2; }
+  button.ghost:active, a.ghost:active { background: #4a3b24; color: var(--ink); transform: translateY(1px); }
+  button.ghost.ack, a.ghost.ack { background: #243024; border-color: var(--good); color: var(--good); transform: none; }
+  button:focus-visible, a.ghost:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  button:disabled { opacity: 0.5; cursor: default; }
   #live-bar { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
   #live-bar.on { display: block; }
   .panel { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
@@ -225,7 +238,7 @@
     <div class="row">
       <button type="button" id="offload">Offload camera card to the Pi</button>
       <button type="button" id="card-list">Show pictures on the camera</button>
-      <a class="ghost" id="zip-link" href="/api/shots.zip" style="display:inline-block;text-align:center;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid var(--line)">Download all on the Pi</a>
+      <a class="ghost" id="zip-link" href="/api/shots.zip">Download all on the Pi</a>
     </div>
     <p id="offload-state" class="muted"></p>
     <div id="card-out"></div>
@@ -283,6 +296,13 @@ async function api(path, opts) {
   return data;
 }
 
+document.addEventListener("pointerdown", (ev) => {
+  const btn = ev.target.closest("button, a.ghost");
+  if (!btn || btn.disabled) return;
+  btn.classList.add("ack");
+  clearTimeout(btn._ack);
+  btn._ack = setTimeout(() => btn.classList.remove("ack"), 700);
+});
 const shootTabs = ["guide", "live", "controls", "timelapse", "lightning", "night"];
 function show(tab) {
   document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("on", el.id === tab));
