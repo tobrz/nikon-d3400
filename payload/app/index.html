@@ -343,8 +343,10 @@
       <button type="button" id="offload">Offload camera card to the Pi</button>
       <button type="button" id="card-list">Show pictures on the camera</button>
       <a class="ghost" id="zip-link" href="/api/shots.zip">Download all on the Pi</a>
+      <button class="ghost" type="button" id="shots-delete-all">Delete all on the Pi</button>
     </div>
     <p id="offload-state" class="muted"></p>
+    <p id="shots-delete-state" class="muted"></p>
     <h2>Latest on the Pi</h2>
     <p class="muted">Pictures taken from this page land here, newest first. A raw file and its JPEG are one picture. The JPEG is what you see.</p>
     <div id="shots-out"></div>
@@ -830,14 +832,17 @@ async function loadShots() {
   $("shots-out").innerHTML = groups.length ? `<div class="gallery">${groups.map((group) => {
     if (group.movie) {
       const name = group.files[0].name;
-      return `<figure class="shot"><figcaption class="muted">${name}</figcaption><button type="button" data-save="${name}">Play or download</button></figure>`;
+      const names = encodeURIComponent(name);
+      return `<figure class="shot"><figcaption class="muted">${name}</figcaption><button type="button" data-save="${name}">Play or download</button><button class="ghost" type="button" data-delete="${names}">Delete</button></figure>`;
     }
     const raw = group.image && !/\.jpe?g$/i.test(group.image);
     const image = group.image ? `<img alt="${group.key}" data-pi="${group.image}"${raw ? ' data-raw="1"' : ""}>` : "";
     const buttons = group.files.map((shot) => `<button type="button" data-save="${shot.name}">${shot.name.split(".").pop().toUpperCase()}</button>`).join("");
-    return `<figure class="shot">${image}<figcaption class="muted">${group.key}</figcaption>${buttons}</figure>`;
+    const names = encodeURIComponent(group.files.map((shot) => shot.name).join("\n"));
+    return `<figure class="shot">${image}<figcaption class="muted">${group.key}</figcaption>${buttons}<button class="ghost" type="button" data-delete="${names}">Delete</button></figure>`;
   }).join("")}</div>` : "<p class='muted'>No frames on the Pi yet.</p>";
   $("shots-out").querySelectorAll("[data-save]").forEach((btn) => { btn.onclick = () => saveToPhone(btn.dataset.save); });
+  $("shots-out").querySelectorAll("[data-delete]").forEach((btn) => { btn.onclick = () => deletePiShots(decodeURIComponent(btn.dataset.delete).split("\n")); });
   const card = loadCameraPictures();
   await Promise.all([...$("shots-out").querySelectorAll("[data-pi]")].map(async (img) => {
     const preview = img.dataset.raw ? "?preview=1" : "";
@@ -850,6 +855,31 @@ async function loadShots() {
   }));
   await card;
 }
+async function deletePiShots(names, all) {
+  const label = $("shots-delete-state");
+  const listed = (names || []).filter(Boolean);
+  if (all) {
+    const ok = confirm("Delete every picture stored on the Pi? Pictures still on the camera card stay there.");
+    if (!ok) return;
+  } else if (!listed.length) {
+    return;
+  } else {
+    const ok = confirm(listed.length > 1
+      ? "Delete this picture from the Pi? The JPEG and the raw file both go. The camera card is unchanged."
+      : "Delete " + listed[0] + " from the Pi? The camera card is unchanged.");
+    if (!ok) return;
+  }
+  if (label) label.textContent = "Deleting…";
+  try {
+    const body = all ? {all: true} : {names: listed};
+    const data = await api("/api/shots/delete", {method: "POST", body});
+    if (label) label.textContent = "Removed " + (data.count || 0) + " file" + ((data.count === 1) ? "" : "s") + " from the Pi.";
+    await loadShots();
+  } catch (err) {
+    if (label) label.textContent = err.message;
+  }
+}
+$("shots-delete-all").onclick = () => deletePiShots([], true);
 $("zip-link").onclick = async (ev) => {
   ev.preventDefault();
   await saveToPhoneZip();

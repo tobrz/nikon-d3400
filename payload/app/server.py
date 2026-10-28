@@ -165,6 +165,8 @@ class Handler(BaseHTTPRequestHandler):
             self._camera_thumbs(body)
         elif path == "/api/camera-files/pull":
             self._pull(body)
+        elif path == "/api/shots/delete":
+            self._delete_shots(body)
         elif path == "/api/offload/start":
             self._guard(JOBS.start_offload)
         elif path == "/api/apply":
@@ -406,6 +408,27 @@ class Handler(BaseHTTPRequestHandler):
     def _shots(self):
         return list_shot_rows(os.path.join(DATA, "shots"))
 
+    def _delete_shots(self, body):
+        folder = os.path.join(DATA, "shots")
+        try:
+            if body.get("all"):
+                removed = delete_shots(folder, all_files=True)
+            else:
+                names = body.get("names")
+                if isinstance(names, str):
+                    names = [names]
+                if not isinstance(names, list) or not names:
+                    self._send(400, {"error": "Pick a picture."})
+                    return
+                removed = delete_shots(folder, names=names)
+        except ValueError:
+            self._send(400, {"error": "Bad picture name."})
+            return
+        except OSError as exc:
+            self._send(500, {"error": str(exc)})
+            return
+        self._send(200, {"removed": removed, "count": len(removed)})
+
     def _pull(self, body):
         folder = str(body.get("folder", ""))
         if not folder.startswith("/"):
@@ -490,6 +513,38 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"error": str(exc), "ap_address": AP_ADDRESS, "known": []})
                 return
             self._send(500, {"error": str(exc)})
+
+
+def shot_filename(name):
+    """A picture name with no folder. Rejects paths that could leave the shots directory."""
+    text = str(name or "")
+    base = os.path.basename(text)
+    if not base or base in (".", "..") or base != text or "/" in text or "\\" in text:
+        raise ValueError("Bad picture name")
+    return base
+
+
+def delete_shots(folder, names=None, all_files=False):
+    """Remove pictures stored on the Pi. This does not touch the camera card."""
+    os.makedirs(folder, exist_ok=True)
+    folder_real = os.path.realpath(folder)
+    if all_files:
+        chosen = []
+        for name in os.listdir(folder_real):
+            if os.path.isfile(os.path.join(folder_real, name)):
+                chosen.append(name)
+    else:
+        chosen = [shot_filename(name) for name in (names or [])]
+    removed = []
+    for name in chosen:
+        path = os.path.join(folder_real, name)
+        if os.path.realpath(os.path.dirname(path)) != folder_real:
+            raise ValueError("Bad picture name")
+        if not os.path.isfile(path):
+            continue
+        os.remove(path)
+        removed.append(name)
+    return removed
 
 
 def list_shot_rows(folder):
