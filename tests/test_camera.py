@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from camera import deletion_order, parse_configs, parse_files
+from camera import deletion_order, live_view_block_reason, parse_configs, parse_files
 from guide import classify, plan
 
 
@@ -48,6 +48,12 @@ class ParseTests(unittest.TestCase):
         rows = parse_files(text)
         self.assertEqual(rows[0]["name"], "DSC_0001.JPG")
         self.assertEqual(rows[0]["index"], 1)
+
+    def test_manual_mode_live_view_message_is_not_a_block(self):
+        self.assertEqual(live_view_block_reason("Liveview should not be prohibited"), "")
+        self.assertEqual(live_view_block_reason("No live view prohibit conditions"), "")
+        blocked = live_view_block_reason("Live View prohibit conditions: Exposure Program Mode is not P/A/S/M")
+        self.assertIn("P, A, S, or M", blocked)
 
     def test_deletion_order_is_highest_index_first_in_each_folder(self):
         files = [

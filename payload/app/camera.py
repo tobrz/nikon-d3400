@@ -74,6 +74,23 @@ def parse_files(text):
     return files
 
 
+def live_view_block_reason(current):
+    """Return a user-facing reason when live view is actually prohibited.
+
+    The D3400 reports "Liveview should not be prohibited" when the dial is
+    already on P, A, S, or M. That sentence is permission, not a block.
+    """
+    text = (current or "").strip()
+    lowered = text.lower()
+    if not text or lowered.startswith("no ") or "should not be prohibited" in lowered:
+        return ""
+    if "prohibit" not in lowered:
+        return ""
+    if "not p/a/s/m" in lowered:
+        return text + " Turn the mode dial to P, A, S, or M. The page will not release the shutter."
+    return text
+
+
 def deletion_order(files):
     """Highest index first inside each folder.
 
@@ -216,10 +233,9 @@ class Camera:
             for line in text.splitlines():
                 if line.strip().startswith("Current:"):
                     current = line.split(":", 1)[1].strip()
-            if current and not current.lower().startswith("no "):
-                raise CameraError(
-                    current + " Turn the mode dial to P, A, S, or M. The page will not release the shutter."
-                )
+            reason = live_view_block_reason(current)
+            if reason:
+                raise CameraError(reason)
             self.run(["--capture-preview", "--filename", path, "--force-overwrite"], timeout=25)
         return path
 
