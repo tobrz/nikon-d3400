@@ -81,6 +81,9 @@ runcmd:
 PY
 printf 'instance-id: nikon-d3400\n' > "$BOOT/meta-data"
 touch "$BOOT/ssh"
+if git -C "$ROOT" rev-parse --short HEAD >/dev/null 2>&1; then
+  git -C "$ROOT" rev-parse --short HEAD > "$BOOT/nikon-revision"
+fi
 
 if ! grep -q 'nikon-d3400 usb host' "$BOOT/config.txt"; then
   cat >> "$BOOT/config.txt" << 'EOF'

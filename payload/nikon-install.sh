@@ -26,6 +26,9 @@ chmod 755 /opt/nikon-d3400/bootstrap.sh /opt/nikon-d3400/nikon-install.sh /opt/n
 if [ -f "$BOOT/nikon-wifi.json" ]; then
   cp "$BOOT/nikon-wifi.json" /var/lib/nikon-d3400/wifi.json
 fi
+if [ -f "$BOOT/nikon-revision" ] && [ ! -f /var/lib/nikon-d3400/revision ]; then
+  cp "$BOOT/nikon-revision" /var/lib/nikon-d3400/revision
+fi
 
 cp /opt/nikon-d3400/units/*.service /etc/systemd/system/
 systemctl daemon-reload

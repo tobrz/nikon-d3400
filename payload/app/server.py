@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Web console for a headless Nikon D3400 tethered to a Raspberry Pi."""
 
+import io
 import json
 import os
 import shutil
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from camera import Camera, CameraError
 from guide import plan, rephrase
 from jobs import Jobs
+from update import REPO, UpdateError, apply_update, read_revision
 from wifi import AP_ADDRESS, bringup, load_networks, save_networks, wifi_state
 
 DATA = os.environ.get("NIKON_DATA", "/var/lib/nikon-d3400")
@@ -48,13 +51,15 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return json.loads(raw.decode())
 
-    def _send(self, code, payload, content_type="application/json"):
+    def _send(self, code, payload, content_type="application/json", disposition=""):
         if not isinstance(payload, (bytes, bytearray)):
             payload = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
+        if disposition:
+            self.send_header("Content-Disposition", disposition)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -88,7 +93,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/shots":
             self._send(200, {"shots": self._shots()})
         elif path.startswith("/shots/"):
-            self._shot(unquote(path[len("/shots/"):]))
+            query = parse_qs(urlparse(self.path).query)
+            self._shot(unquote(path[len("/shots/"):]), download="download" in query)
+        elif path == "/api/camera-files":
+            self._guard(lambda: {"files": CAMERA.list_files()})
+        elif path == "/api/shots.zip":
+            self._zip_shots()
         elif path == "/api/wifi":
             self._guard(lambda: wifi_state(WIFI_PATH), wifi=True)
         elif path == "/preview.jpg":
@@ -130,6 +140,10 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: CAMERA.set_config(str(body.get("path", "")), str(body.get("value", ""))))
         elif path == "/api/capture":
             self._guard(CAMERA.capture)
+        elif path == "/api/focus":
+            self._guard(lambda: CAMERA.focus(str(body.get("direction", ""))))
+        elif path == "/api/camera-files/pull":
+            self._pull(body)
         elif path == "/api/apply":
             settings = body.get("settings") or {}
             self._guard(lambda: CAMERA.apply_settings({str(k): str(v) for k, v in settings.items()}))
@@ -145,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             self._guide(body)
         elif path == "/api/wifi":
             self._add_wifi(body)
+        elif path == "/api/update":
+            self._update()
         else:
             self._send(404, {"error": "Not found"})
 
@@ -161,7 +177,15 @@ class Handler(BaseHTTPRequestHandler):
             "jobs": JOBS.snapshot(),
             "wifi": radio,
             "page": f"http://{AP_ADDRESS}",
+            "revision": read_revision(),
+            "repo": REPO,
         }
+
+    def _update(self):
+        try:
+            self._send(200, apply_update())
+        except UpdateError as exc:
+            self._send(502, {"error": str(exc)})
 
     def _guide(self, body):
         text = str(body.get("text", "")).strip()
@@ -226,7 +250,19 @@ class Handler(BaseHTTPRequestHandler):
             rows.append({"name": name, "size": os.path.getsize(path)})
         return rows[:200]
 
-    def _shot(self, name):
+    def _pull(self, body):
+        folder = str(body.get("folder", ""))
+        if not folder.startswith("/"):
+            self._send(400, {"error": "Pick a file the camera listed."})
+            return
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            self._send(400, {"error": "Pick a file the camera listed."})
+            return
+        self._guard(lambda: CAMERA.pull(folder, index, str(body.get("name", ""))))
+
+    def _shot(self, name, download=False):
         if "/" in name or name.startswith("."):
             self._send(400, {"error": "Bad name"})
             return
@@ -235,16 +271,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "No such frame"})
             return
         kind = "image/jpeg" if name.lower().endswith((".jpg", ".jpeg")) else "application/octet-stream"
-        self._file(path, kind)
+        disposition = f'attachment; filename="{name}"' if download else ""
+        self._file(path, kind, disposition)
 
-    def _file(self, path, content_type):
+    def _zip_shots(self):
+        folder = os.path.join(DATA, "shots")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as archive:
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    archive.write(path, arcname=name)
+        data = buf.getvalue()
+        self._send(200, data, "application/zip", 'attachment; filename="nikon-d3400.zip"')
+
+    def _file(self, path, content_type, disposition=""):
         try:
             with open(path, "rb") as handle:
                 data = handle.read()
         except OSError:
             self._send(404, {"error": "Missing file"})
             return
-        self._send(200, data, content_type)
+        self._send(200, data, content_type, disposition)
 
     def _guard(self, fn, wifi=False):
         try:

@@ -175,9 +175,51 @@ class Camera:
         return {"output": text.strip()}
 
     def preview(self, path):
+        """One live-view frame. Turns the viewfinder on when the body allows it."""
         with self._lock:
-            self.run(["--capture-preview", "--filename", path, "--force-overwrite"], timeout=30)
+            for spec in ("viewfinder=1", "/main/actions/viewfinder=1", "liveview=1"):
+                try:
+                    self.run(["--set-config", spec], timeout=8)
+                    break
+                except CameraError:
+                    continue
+            self.run(["--capture-preview", "--filename", path, "--force-overwrite"], timeout=25)
         return path
+
+    def focus(self, direction):
+        moves = {
+            "near3": ("manualfocusdrive", "Near 3"),
+            "near2": ("manualfocusdrive", "Near 2"),
+            "near1": ("manualfocusdrive", "Near 1"),
+            "far1": ("manualfocusdrive", "Far 1"),
+            "far2": ("manualfocusdrive", "Far 2"),
+            "far3": ("manualfocusdrive", "Far 3"),
+            "auto": ("autofocusdrive", "1"),
+        }
+        if direction not in moves:
+            raise CameraError("Unknown focus move.")
+        key, value = moves[direction]
+        with self._lock:
+            try:
+                self.run(["--set-config", f"{key}={value}"], timeout=20)
+            except CameraError as exc:
+                raise CameraError(
+                    f"The D3400 refused {key}. Live view has to be on, and the lens switch may need to be on A for autofocus or M for the near/far steps. {exc}"
+                ) from exc
+        return {"direction": direction, "set": f"{key}={value}"}
+
+    def pull(self, folder, index, name):
+        safe = os.path.basename(name) or f"frame-{index}.jpg"
+        dest = os.path.join(self.shots_dir, safe)
+        if os.path.exists(dest):
+            stem, ext = os.path.splitext(safe)
+            dest = os.path.join(self.shots_dir, f"{stem}-{index}{ext}")
+        with self._lock:
+            self.run(
+                ["--folder", folder, "--get-file", str(index), "--filename", dest, "--force-overwrite"],
+                timeout=120,
+            )
+        return {"name": os.path.basename(dest), "path": dest}
 
     def list_files(self):
         with self._lock:

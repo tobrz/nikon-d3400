@@ -5,13 +5,13 @@ LOG=/var/lib/nikon-d3400/bootstrap.log
 mkdir -p /var/lib/nikon-d3400
 exec >>"$LOG" 2>&1
 echo "---- $(date) ----"
-if ! command -v gphoto2 >/dev/null; then
+if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null; then
   if ! ip route | grep -q '^default'; then
     echo "No default route yet. Plug in ethernet."
     exit 1
   fi
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y gphoto2 avahi-daemon
+  DEBIAN_FRONTEND=noninteractive apt-get install -y gphoto2 avahi-daemon git
 fi
 if ! command -v gphoto2 >/dev/null; then
   echo "gphoto2 still missing"

@@ -81,7 +81,8 @@
 <main>
   <nav>
     <button type="button" data-tab="guide">Guide</button>
-    <button class="ghost" type="button" data-tab="controls">Controls</button>
+    <button class="ghost" type="button" data-tab="live">Live view</button>
+    <button class="ghost" type="button" data-tab="controls">Menu</button>
     <button class="ghost" type="button" data-tab="timelapse">Timelapse</button>
     <button class="ghost" type="button" data-tab="lightning">Lightning</button>
     <button class="ghost" type="button" data-tab="night">Night</button>
@@ -103,9 +104,32 @@
     <div id="guide-out"></div>
   </section>
 
+  <section id="live" class="panel">
+    <h2>Live view</h2>
+    <p class="muted">A new frame is pulled from the D3400 as fast as USB allows. If this body refuses live view, the message under the picture says so. Focus steps need the lens on M. Autofocus needs it on A.</p>
+    <img id="live" class="frame" alt="Live view appears here">
+    <p id="live-state" class="muted"></p>
+    <div class="row">
+      <button type="button" id="live-start">Start live view</button>
+      <button class="ghost" type="button" id="live-stop">Stop</button>
+    </div>
+    <div class="row">
+      <button class="ghost" type="button" data-focus="near3">Near 3</button>
+      <button class="ghost" type="button" data-focus="near2">Near 2</button>
+      <button class="ghost" type="button" data-focus="near1">Near 1</button>
+      <button type="button" data-focus="auto">Autofocus</button>
+      <button class="ghost" type="button" data-focus="far1">Far 1</button>
+      <button class="ghost" type="button" data-focus="far2">Far 2</button>
+      <button class="ghost" type="button" data-focus="far3">Far 3</button>
+    </div>
+    <p id="focus-state" class="muted"></p>
+  </section>
+
   <section id="controls" class="panel">
-    <h2>Every control the body offers</h2>
-    <p class="muted">The list is read from the camera over USB. Empty means the body is asleep, the cable is not in a host port, or this firmware refused that command.</p>
+    <h2>Every menu item the body offers</h2>
+    <p class="muted">Choices, on/off switches, number ranges, and text are all writable when the camera says they are. Read-only rows are shown and left alone. This list is the menu, read over USB, not a fixed catalog.</p>
+    <label for="menu-filter">Find a setting</label>
+    <input id="menu-filter" placeholder="iso, shutter, focus, white balance">
     <div id="controls-out"></div>
     <div class="row"><button type="button" id="capture">Release shutter</button></div>
     <pre id="summary"></pre>
@@ -146,7 +170,14 @@
   </section>
 
   <section id="shots" class="panel">
-    <h2>Frames on the Pi</h2>
+    <h2>Pictures</h2>
+    <p class="muted">Copy a frame off the D3400, then download it onto this phone or laptop. The zip is everything already stored on the Pi.</p>
+    <div class="row">
+      <button type="button" id="card-list">Show pictures on the camera</button>
+      <a class="ghost" id="zip-link" href="/api/shots.zip" style="display:inline-block;text-align:center;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid var(--line)">Download all on the Pi</a>
+    </div>
+    <div id="card-out"></div>
+    <h2>Already on the Pi</h2>
     <div id="shots-out"></div>
   </section>
 
@@ -162,6 +193,12 @@
     <label for="new-pw">Change the page password</label>
     <input id="new-pw" type="password" autocomplete="new-password">
     <div class="row"><button class="ghost" type="button" id="pw-save">Save password</button></div>
+    <h2>Update</h2>
+    <p class="muted">Downloads the camera console from the public git repo and restarts this page. Pictures, saved Wi-Fi networks, and this password stay on the Pi. Raspberry Pi OS stays as it was imaged.</p>
+    <p class="muted">The Pi needs ethernet, or a Wi-Fi network it has joined that can reach the internet. While it is only the Nikon-D3400 access point, this button cannot download anything.</p>
+    <p id="rev-line" class="muted"></p>
+    <div class="row"><button type="button" id="update-go">Update from git</button></div>
+    <p id="update-state" class="muted"></p>
   </section>
 </main>
 <script>
@@ -194,7 +231,13 @@ function show(tab) {
     el.classList.toggle("ghost", el.dataset.tab !== tab);
   });
 }
-document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => { show(btn.dataset.tab); if (btn.dataset.tab === "controls") loadControls(); if (btn.dataset.tab === "shots") loadShots(); if (btn.dataset.tab === "wifi") loadWifi(); });
+document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => {
+  show(btn.dataset.tab);
+  if (btn.dataset.tab !== "live") stopLive();
+  if (btn.dataset.tab === "controls") loadControls();
+  if (btn.dataset.tab === "shots") loadShots();
+  if (btn.dataset.tab === "wifi") loadWifi();
+});
 
 $("login").onsubmit = async (ev) => {
   ev.preventDefault();
@@ -212,7 +255,10 @@ async function refresh() {
     const cam = data.camera ? data.camera.model : (data.gphoto2 ? "USB quiet" : "gphoto2 still installing");
     const wifi = data.wifi || {};
     const where = wifi.ap_up ? "access point 192.168.50.1" : (wifi.client_connected ? "joined a network" : "Wi-Fi settling");
-    $("status").textContent = cam + " · " + where;
+    const rev = data.revision ? " · " + data.revision : "";
+    $("status").textContent = cam + " · " + where + rev;
+    const line = $("rev-line");
+    if (line) line.textContent = data.revision ? ("Installed revision " + data.revision) : "Installed revision: factory image, not yet updated from git.";
     const jobs = data.jobs || {};
     $("tl-state").textContent = jobs.timelapse ? JSON.stringify(jobs.timelapse) : "";
     $("ln-state").textContent = jobs.lightning ? JSON.stringify(jobs.lightning) : "";
@@ -243,31 +289,73 @@ $("ask-shoot").onclick = async () => {
   catch (err) { $("guide-out").textContent = err.message; }
 };
 
+function controlField(item) {
+  const id = "c" + item.path.replace(/[^a-z0-9]+/gi, "-");
+  const current = item.current || "";
+  if (item.readonly) {
+    return `<div class="step control" data-label="${(item.label || "").toLowerCase()}"><strong>${item.label}</strong><span class="muted">${current}</span></div>`;
+  }
+  if (item.choices && item.choices.length) {
+    const options = item.choices.map((choice) => `<option ${choice.label === current || choice.index === current ? "selected" : ""} value="${choice.label}">${choice.label}</option>`).join("");
+    return `<div class="control" data-label="${(item.label || "").toLowerCase()} ${item.path.toLowerCase()}"><label for="${id}">${item.label}</label><select id="${id}" data-path="${item.path}">${options}</select></div>`;
+  }
+  if ((item.type || "").toUpperCase() === "RANGE") {
+    return `<div class="control" data-label="${(item.label || "").toLowerCase()}"><label for="${id}">${item.label}</label><input id="${id}" data-path="${item.path}" type="number" value="${current}" min="${item.bottom || ""}" max="${item.top || ""}" step="${item.step || "any"}"></div>`;
+  }
+  return `<div class="control" data-label="${(item.label || "").toLowerCase()}"><label for="${id}">${item.label}</label><input id="${id}" data-path="${item.path}" value="${current.replace(/"/g, "&quot;")}"></div>`;
+}
+function bindControls(root) {
+  const send = async (el) => {
+    try { await api("/api/config", {method: "POST", body: {path: el.dataset.path, value: el.value}}); }
+    catch (err) { alert(err.message); }
+  };
+  root.querySelectorAll("select").forEach((el) => { el.onchange = () => send(el); });
+  root.querySelectorAll("input").forEach((el) => { el.onchange = () => send(el); });
+}
 async function loadControls() {
   $("controls-out").textContent = "Reading the camera…";
   try {
     const data = await api("/api/config");
     const summary = await api("/api/summary");
     $("summary").textContent = summary.summary || "";
-    $("controls-out").innerHTML = (data.controls || []).map((item) => {
-      const id = "c" + item.path.replace(/[^a-z0-9]+/gi, "-");
-      if (item.readonly || !item.choices || !item.choices.length) {
-        return `<div class="step"><strong>${item.label}</strong><span class="muted">${item.current || ""}</span></div>`;
-      }
-      const options = item.choices.map((choice) => `<option ${choice.label === item.current || choice.index === item.current ? "selected" : ""} value="${choice.label}">${choice.label}</option>`).join("");
-      return `<label for="${id}">${item.label}</label><select id="${id}" data-path="${item.path}">${options}</select>`;
-    }).join("");
-    $("controls-out").querySelectorAll("select").forEach((sel) => {
-      sel.onchange = async () => {
-        try { await api("/api/config", {method: "POST", body: {path: sel.dataset.path, value: sel.value}}); }
-        catch (err) { alert(err.message); }
-      };
-    });
+    $("controls-out").innerHTML = (data.controls || []).map(controlField).join("") || "<p class='muted'>The camera did not return a menu.</p>";
+    bindControls($("controls-out"));
   } catch (err) {
     $("controls-out").textContent = err.message;
     $("summary").textContent = "";
   }
 }
+$("menu-filter").oninput = () => {
+  const q = $("menu-filter").value.toLowerCase();
+  document.querySelectorAll("#controls-out .control").forEach((el) => {
+    el.style.display = el.dataset.label.includes(q) ? "" : "none";
+  });
+};
+let liveOn = false;
+let liveUrl = "";
+function stopLive() { liveOn = false; }
+async function liveTick() {
+  if (!liveOn) return;
+  try {
+    const res = await api("/preview.jpg");
+    const blob = await res.blob();
+    if (liveUrl) URL.revokeObjectURL(liveUrl);
+    liveUrl = URL.createObjectURL(blob);
+    $("live").src = liveUrl;
+    $("live-state").textContent = "Live view is running.";
+  } catch (err) {
+    $("live-state").textContent = err.message;
+  }
+  if (liveOn) setTimeout(liveTick, 300);
+}
+$("live-start").onclick = () => { liveOn = true; $("live-state").textContent = "Asking the camera for a frame…"; liveTick(); };
+$("live-stop").onclick = stopLive;
+document.querySelectorAll("[data-focus]").forEach((btn) => {
+  btn.onclick = async () => {
+    try { $("focus-state").textContent = JSON.stringify(await api("/api/focus", {method: "POST", body: {direction: btn.dataset.focus}})); }
+    catch (err) { $("focus-state").textContent = err.message; }
+  };
+});
 $("capture").onclick = async () => {
   try { alert(JSON.stringify(await api("/api/capture", {method: "POST", body: {}}))); }
   catch (err) { alert(err.message); }
@@ -291,13 +379,56 @@ $("night-go").onclick = async () => {
   } catch (err) { $("night-state").textContent = err.message; }
 };
 
+async function saveToPhone(name) {
+  const res = await api("/shots/" + encodeURIComponent(name) + "?download=1");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 async function loadShots() {
   const data = await api("/api/shots");
   $("shots-out").innerHTML = (data.shots || []).map((shot) => {
     const img = /\.jpe?g$/i.test(shot.name) ? `<img class="frame" alt="" src="/shots/${encodeURIComponent(shot.name)}">` : "";
-    return `<div class="shot"><a href="/shots/${encodeURIComponent(shot.name)}">${shot.name}</a> <span class="muted">${shot.size} bytes</span>${img}</div>`;
-  }).join("") || "<p class='muted'>No frames yet.</p>";
+    return `<div class="shot"><strong>${shot.name}</strong> <span class="muted">${shot.size} bytes</span> <button type="button" data-save="${shot.name}">Download to this device</button>${img}</div>`;
+  }).join("") || "<p class='muted'>No frames on the Pi yet.</p>";
+  $("shots-out").querySelectorAll("[data-save]").forEach((btn) => { btn.onclick = () => saveToPhone(btn.dataset.save); });
 }
+$("zip-link").onclick = async (ev) => {
+  ev.preventDefault();
+  await saveToPhoneZip();
+};
+async function saveToPhoneZip() {
+  const res = await api("/api/shots.zip");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "nikon-d3400.zip";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+$("card-list").onclick = async () => {
+  $("card-out").textContent = "Reading the card in the camera…";
+  try {
+    const data = await api("/api/camera-files");
+    $("card-out").innerHTML = (data.files || []).map((file) => `<div class="step"><strong>${file.name}</strong> <span class="muted">${file.folder}</span> <button type="button" data-folder="${file.folder}" data-index="${file.index}" data-name="${file.name}">Copy, then download here</button></div>`).join("") || "<p class='muted'>The camera card looks empty.</p>";
+    $("card-out").querySelectorAll("button").forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          const saved = await api("/api/camera-files/pull", {method: "POST", body: {folder: btn.dataset.folder, index: Number(btn.dataset.index), name: btn.dataset.name}});
+          await saveToPhone(saved.name);
+          loadShots();
+        } catch (err) { alert(err.message); }
+        btn.disabled = false;
+      };
+    });
+  } catch (err) { $("card-out").textContent = err.message; }
+};
 
 async function loadWifi() {
   try { $("wifi-state").textContent = JSON.stringify(await api("/api/wifi"), null, 2); }
@@ -308,6 +439,18 @@ $("wifi-save").onclick = async () => {
     const data = await api("/api/wifi", {method: "POST", body: {ssid: $("ssid").value, password: $("wifi-pw").value}});
     $("wifi-state").textContent = JSON.stringify(data, null, 2);
   } catch (err) { $("wifi-state").textContent = err.message; }
+};
+$("update-go").onclick = async () => {
+  $("update-state").textContent = "Downloading. The page may go quiet for a few seconds, then come back.";
+  $("update-go").disabled = true;
+  try {
+    const data = await api("/api/update", {method: "POST", body: {}});
+    $("update-state").textContent = (data.note || "Updated.") + (data.revision ? " Now at " + data.revision + "." : "");
+    if (data.revision) $("rev-line").textContent = "Installed revision " + data.revision;
+  } catch (err) {
+    $("update-state").textContent = err.message;
+  }
+  $("update-go").disabled = false;
 };
 $("pw-save").onclick = async () => {
   try {
