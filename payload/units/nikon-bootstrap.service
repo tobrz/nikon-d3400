@@ -1,0 +1,14 @@
+[Unit]
+Description=Install gphoto2 and the optional on-device model
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nikon-d3400/bootstrap.sh
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=20
+
+[Install]
+WantedBy=multi-user.target

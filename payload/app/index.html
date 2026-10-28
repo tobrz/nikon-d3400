@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nikon D3400</title>
+<style>
+  :root {
+    --bg: #14120e;
+    --panel: #221e18;
+    --ink: #f3ead7;
+    --dim: #b4a48a;
+    --line: #3a3226;
+    --amber: #e6a23c;
+    --good: #8fbf7a;
+    --bad: #e07a5f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.45 "Iowan Old Style", Palatino, Georgia, serif;
+  }
+  header, main { padding: 16px; max-width: 880px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  h1 { font-size: 28px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+  h2 { font-size: 22px; margin: 0 0 8px; }
+  .pill { color: var(--dim); font-size: 14px; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+  button, input, select {
+    font: inherit;
+    color: var(--ink);
+    background: #2c261d;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  button { background: var(--amber); color: #1a140c; border: 0; font-weight: 650; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.5; }
+  .panel { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+  .panel.on { display: block; }
+  label { display: block; color: var(--dim); font-size: 14px; margin: 10px 0 4px; }
+  input, select { width: 100%; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .row > * { flex: 1; }
+  .step { border-top: 1px solid var(--line); padding: 10px 0; }
+  .step strong { display: block; }
+  .muted { color: var(--dim); }
+  .error { color: var(--bad); }
+  .ok { color: var(--good); }
+  #gate {
+    position: fixed; inset: 0; background: rgba(10,8,6,0.92);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  #gate form { width: min(420px, 100%); background: var(--panel); padding: 20px; border-radius: 16px; }
+  .shot { margin: 8px 0; }
+  img.frame { width: 100%; border-radius: 12px; background: #000; }
+  pre { white-space: pre-wrap; font: 14px/1.4 ui-monospace, monospace; color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="gate">
+  <form id="login">
+    <h2>Nikon D3400</h2>
+    <p class="muted">Join Wi-Fi <strong>Nikon-D3400</strong>, then this page is <strong>http://192.168.50.1</strong>. Factory password is <strong>nikon-d3400</strong>.</p>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" value="nikon-d3400">
+    <div class="row"><button type="submit">Open the console</button></div>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+<header>
+  <div>
+    <h1>D3400</h1>
+    <div id="status" class="pill">Looking for the camera</div>
+  </div>
+  <button class="ghost" id="refresh" type="button">Refresh</button>
+</header>
+<main>
+  <nav>
+    <button type="button" data-tab="guide">Guide</button>
+    <button class="ghost" type="button" data-tab="controls">Controls</button>
+    <button class="ghost" type="button" data-tab="timelapse">Timelapse</button>
+    <button class="ghost" type="button" data-tab="lightning">Lightning</button>
+    <button class="ghost" type="button" data-tab="night">Night</button>
+    <button class="ghost" type="button" data-tab="shots">Shots</button>
+    <button class="ghost" type="button" data-tab="wifi">Wi-Fi</button>
+  </nav>
+
+  <section id="guide" class="panel on">
+    <h2>Walk me through a shot</h2>
+    <p class="muted">This runs on the Pi. A tiny local model rephrases the plan when one is installed. The steps themselves are written for the D3400.</p>
+    <label for="ask">What do you want?</label>
+    <input id="ask" value="I want a night shot of the Milky Way. Walk me through aim and focus, then get ready to open the shutter.">
+    <div class="row">
+      <button type="button" id="ask-go">Plan it</button>
+      <button class="ghost" type="button" id="ask-apply">Apply the exposure</button>
+      <button class="ghost" type="button" id="ask-shoot">Open the shutter</button>
+    </div>
+    <p id="guide-model" class="pill"></p>
+    <div id="guide-out"></div>
+  </section>
+
+  <section id="controls" class="panel">
+    <h2>Every control the body offers</h2>
+    <p class="muted">The list is read from the camera over USB. Empty means the body is asleep, the cable is not in a host port, or this firmware refused that command.</p>
+    <div id="controls-out"></div>
+    <div class="row"><button type="button" id="capture">Release shutter</button></div>
+    <pre id="summary"></pre>
+  </section>
+
+  <section id="timelapse" class="panel">
+    <h2>Tripod timelapse</h2>
+    <label for="interval">Seconds between frames</label>
+    <input id="interval" type="number" min="3" value="10">
+    <label for="count">How many frames (0 keeps going until you stop)</label>
+    <input id="count" type="number" min="0" value="0">
+    <div class="row">
+      <button type="button" id="tl-start">Start</button>
+      <button class="ghost" type="button" id="tl-stop">Stop</button>
+    </div>
+    <p id="tl-state" class="muted"></p>
+  </section>
+
+  <section id="lightning" class="panel">
+    <h2>Lightning</h2>
+    <p class="muted">Sprays the shutter, then copies the new frames off the card. A digital light sensor can be added later on GPIO 17. USB is slower than the bolt, so leave the camera in manual focus and manual exposure first.</p>
+    <label for="frames">How many releases</label>
+    <input id="frames" type="number" min="1" value="40">
+    <label for="gap">Seconds between releases</label>
+    <input id="gap" type="number" min="0.2" step="0.1" value="0.5">
+    <div class="row">
+      <button type="button" id="ln-start">Arm</button>
+      <button class="ghost" type="button" id="ln-stop">Stop</button>
+    </div>
+    <p id="ln-state" class="muted"></p>
+  </section>
+
+  <section id="night" class="panel">
+    <h2>Night test frame</h2>
+    <p class="muted">Applies ISO 800, f/3.5, and a long shutter if the body allows those names, then takes one frame.</p>
+    <button type="button" id="night-go">Set night exposure and shoot</button>
+    <p id="night-state" class="muted"></p>
+  </section>
+
+  <section id="shots" class="panel">
+    <h2>Frames on the Pi</h2>
+    <div id="shots-out"></div>
+  </section>
+
+  <section id="wifi" class="panel">
+    <h2>Wi-Fi</h2>
+    <p class="muted">Known networks are tried first. If none are in range, the Pi is an access point at <strong>192.168.50.1</strong> and hands your phone an address. Saving a home network from this access point will make the Pi leave it.</p>
+    <label for="ssid">Network name</label>
+    <input id="ssid" autocomplete="off">
+    <label for="wifi-pw">Password</label>
+    <input id="wifi-pw" type="password" autocomplete="off">
+    <div class="row"><button type="button" id="wifi-save">Remember this network</button></div>
+    <pre id="wifi-state"></pre>
+    <label for="new-pw">Change the page password</label>
+    <input id="new-pw" type="password" autocomplete="new-password">
+    <div class="row"><button class="ghost" type="button" id="pw-save">Save password</button></div>
+  </section>
+</main>
+<script>
+const key = "nikon-password";
+let pass = localStorage.getItem(key) || "";
+const $ = (id) => document.getElementById(id);
+
+async function api(path, opts) {
+  const headers = {"X-Nikon-Password": pass};
+  const init = Object.assign({headers}, opts || {});
+  if (init.body && typeof init.body !== "string") {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(init.body);
+  }
+  const res = await fetch(path, init);
+  if (res.status === 401) {
+    $("gate").style.display = "flex";
+    throw new Error("Sign in again.");
+  }
+  const type = res.headers.get("content-type") || "";
+  if (!type.includes("json")) return res;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function show(tab) {
+  document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("on", el.id === tab));
+  document.querySelectorAll("nav button").forEach((el) => {
+    el.classList.toggle("ghost", el.dataset.tab !== tab);
+  });
+}
+document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => { show(btn.dataset.tab); if (btn.dataset.tab === "controls") loadControls(); if (btn.dataset.tab === "shots") loadShots(); if (btn.dataset.tab === "wifi") loadWifi(); });
+
+$("login").onsubmit = async (ev) => {
+  ev.preventDefault();
+  pass = $("pw").value;
+  const res = await fetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({password: pass})});
+  if (!res.ok) { $("login-error").textContent = "That password was refused."; return; }
+  localStorage.setItem(key, pass);
+  $("gate").style.display = "none";
+  refresh();
+};
+
+async function refresh() {
+  try {
+    const data = await api("/api/status");
+    const cam = data.camera ? data.camera.model : (data.gphoto2 ? "USB quiet" : "gphoto2 still installing");
+    const wifi = data.wifi || {};
+    const where = wifi.ap_up ? "access point 192.168.50.1" : (wifi.client_connected ? "joined a network" : "Wi-Fi settling");
+    $("status").textContent = cam + " · " + where;
+    const jobs = data.jobs || {};
+    $("tl-state").textContent = jobs.timelapse ? JSON.stringify(jobs.timelapse) : "";
+    $("ln-state").textContent = jobs.lightning ? JSON.stringify(jobs.lightning) : "";
+  } catch (err) {
+    $("status").textContent = err.message;
+  }
+}
+$("refresh").onclick = refresh;
+
+let lastPlan = null;
+function renderGuide(data) {
+  lastPlan = data;
+  $("guide-model").textContent = data.model === "ollama" ? "Spoken by the on-device model" : "Built-in D3400 guide";
+  const steps = (data.steps || []).map((step, i) => `<div class="step"><strong>${i + 1}. ${step.title}</strong><span class="muted">${step.body}</span></div>`).join("");
+  $("guide-out").innerHTML = `<h2>${data.title || ""}</h2><p>${data.speech || ""}</p>${steps}`;
+}
+$("ask-go").onclick = async () => {
+  $("guide-out").textContent = "Planning…";
+  try { renderGuide(await api("/api/guide", {method: "POST", body: {text: $("ask").value}})); }
+  catch (err) { $("guide-out").textContent = err.message; }
+};
+$("ask-apply").onclick = async () => {
+  try { renderGuide(await api("/api/guide", {method: "POST", body: {text: $("ask").value, apply: true}})); }
+  catch (err) { $("guide-out").textContent = err.message; }
+};
+$("ask-shoot").onclick = async () => {
+  try { renderGuide(await api("/api/guide", {method: "POST", body: {text: $("ask").value, apply: true, shoot: true}})); }
+  catch (err) { $("guide-out").textContent = err.message; }
+};
+
+async function loadControls() {
+  $("controls-out").textContent = "Reading the camera…";
+  try {
+    const data = await api("/api/config");
+    const summary = await api("/api/summary");
+    $("summary").textContent = summary.summary || "";
+    $("controls-out").innerHTML = (data.controls || []).map((item) => {
+      const id = "c" + item.path.replace(/[^a-z0-9]+/gi, "-");
+      if (item.readonly || !item.choices || !item.choices.length) {
+        return `<div class="step"><strong>${item.label}</strong><span class="muted">${item.current || ""}</span></div>`;
+      }
+      const options = item.choices.map((choice) => `<option ${choice.label === item.current || choice.index === item.current ? "selected" : ""} value="${choice.label}">${choice.label}</option>`).join("");
+      return `<label for="${id}">${item.label}</label><select id="${id}" data-path="${item.path}">${options}</select>`;
+    }).join("");
+    $("controls-out").querySelectorAll("select").forEach((sel) => {
+      sel.onchange = async () => {
+        try { await api("/api/config", {method: "POST", body: {path: sel.dataset.path, value: sel.value}}); }
+        catch (err) { alert(err.message); }
+      };
+    });
+  } catch (err) {
+    $("controls-out").textContent = err.message;
+    $("summary").textContent = "";
+  }
+}
+$("capture").onclick = async () => {
+  try { alert(JSON.stringify(await api("/api/capture", {method: "POST", body: {}}))); }
+  catch (err) { alert(err.message); }
+};
+
+$("tl-start").onclick = async () => {
+  try { $("tl-state").textContent = JSON.stringify(await api("/api/timelapse/start", {method: "POST", body: {interval: Number($("interval").value), count: Number($("count").value)}})); }
+  catch (err) { $("tl-state").textContent = err.message; }
+};
+$("tl-stop").onclick = async () => { $("tl-state").textContent = JSON.stringify(await api("/api/timelapse/stop", {method: "POST", body: {}})); };
+$("ln-start").onclick = async () => {
+  try { $("ln-state").textContent = JSON.stringify(await api("/api/lightning/start", {method: "POST", body: {frames: Number($("frames").value), gap: Number($("gap").value)}})); }
+  catch (err) { $("ln-state").textContent = err.message; }
+};
+$("ln-stop").onclick = async () => { $("ln-state").textContent = JSON.stringify(await api("/api/lightning/stop", {method: "POST", body: {}})); };
+
+$("night-go").onclick = async () => {
+  try {
+    const data = await api("/api/guide", {method: "POST", body: {text: "night shot", apply: true, shoot: true}});
+    $("night-state").textContent = data.speech;
+  } catch (err) { $("night-state").textContent = err.message; }
+};
+
+async function loadShots() {
+  const data = await api("/api/shots");
+  $("shots-out").innerHTML = (data.shots || []).map((shot) => {
+    const img = /\.jpe?g$/i.test(shot.name) ? `<img class="frame" alt="" src="/shots/${encodeURIComponent(shot.name)}">` : "";
+    return `<div class="shot"><a href="/shots/${encodeURIComponent(shot.name)}">${shot.name}</a> <span class="muted">${shot.size} bytes</span>${img}</div>`;
+  }).join("") || "<p class='muted'>No frames yet.</p>";
+}
+
+async function loadWifi() {
+  try { $("wifi-state").textContent = JSON.stringify(await api("/api/wifi"), null, 2); }
+  catch (err) { $("wifi-state").textContent = err.message; }
+}
+$("wifi-save").onclick = async () => {
+  try {
+    const data = await api("/api/wifi", {method: "POST", body: {ssid: $("ssid").value, password: $("wifi-pw").value}});
+    $("wifi-state").textContent = JSON.stringify(data, null, 2);
+  } catch (err) { $("wifi-state").textContent = err.message; }
+};
+$("pw-save").onclick = async () => {
+  try {
+    await api("/api/password", {method: "POST", body: {password: $("new-pw").value}});
+    pass = $("new-pw").value;
+    localStorage.setItem(key, pass);
+    alert("Password saved on the Pi.");
+  } catch (err) { alert(err.message); }
+};
+
+if (pass) {
+  api("/api/status").then(() => { $("gate").style.display = "none"; refresh(); }).catch(() => {});
+}
+setInterval(() => { if ($("gate").style.display === "none") refresh(); }, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+[Unit]
+Description=Nikon D3400 web console
+After=network-online.target nikon-wifi.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=NIKON_DATA=/var/lib/nikon-d3400
+Environment=NIKON_PORT=80
+ExecStart=/usr/bin/python3 /opt/nikon-d3400/app/server.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
