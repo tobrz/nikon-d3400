@@ -83,6 +83,7 @@
     <button type="button" data-tab="guide">Guide</button>
     <button class="ghost" type="button" data-tab="live">Live view</button>
     <button class="ghost" type="button" data-tab="controls">Menu</button>
+    <button class="ghost" type="button" data-tab="raw">Raw</button>
     <button class="ghost" type="button" data-tab="timelapse">Timelapse</button>
     <button class="ghost" type="button" data-tab="lightning">Lightning</button>
     <button class="ghost" type="button" data-tab="night">Night</button>
@@ -134,6 +135,13 @@
     <div id="controls-out"></div>
     <div class="row"><button type="button" id="capture">Release shutter</button></div>
     <pre id="summary"></pre>
+  </section>
+
+  <section id="raw" class="panel">
+    <h2>Everything the camera reports</h2>
+    <p class="muted">This is the raw report from the body. Lens identity is included as the camera sends it: Lens ID, Lens Type, and the focal-length range. Those are numbers, plus millimeters, not the name printed on the lens.</p>
+    <div class="row"><button type="button" id="raw-reload">Read the camera again</button></div>
+    <pre id="raw-out">Open this tab with the camera on.</pre>
   </section>
 
   <section id="timelapse" class="panel">
@@ -258,6 +266,7 @@ document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => {
   show(btn.dataset.tab);
   if (btn.dataset.tab !== "live") stopLive();
   if (btn.dataset.tab === "controls") loadControls();
+  if (btn.dataset.tab === "raw") loadRaw();
   if (btn.dataset.tab === "shots") loadShots();
   if (btn.dataset.tab === "place") loadGeo();
   if (btn.dataset.tab === "wifi") loadWifi();
@@ -341,6 +350,39 @@ function bindControls(root) {
   root.querySelectorAll("select").forEach((el) => { el.onchange = () => send(el); });
   root.querySelectorAll("input").forEach((el) => { el.onchange = () => send(el); });
 }
+function rawReport(status, summary, config) {
+  const lines = [];
+  const camera = status.camera || {};
+  lines.push(camera.model || "No camera");
+  if (camera.port) lines.push(camera.port);
+  if (status.revision) lines.push("revision " + status.revision);
+  const lens = (summary.summary || "").split("\n").filter((line) => /lens|focal/i.test(line));
+  lines.push("", "# Lens");
+  lines.push(lens.length ? lens.join("\n") : "The body did not include lens lines in the summary.");
+  lines.push("", "# Summary", summary.summary || "");
+  lines.push("", "# Abilities", summary.abilities || "");
+  lines.push("", "# Controls");
+  (config.controls || []).forEach((item) => {
+    const access = item.readonly ? "RO" : "RW";
+    lines.push(`${item.path}  ${access}  ${item.type || ""}  ${item.label || item.key || ""}  ${item.current || ""}`);
+    (item.choices || []).forEach((choice) => lines.push(`  ${choice.index}: ${choice.label}`));
+  });
+  return lines.join("\n");
+}
+async function loadRaw() {
+  $("raw-out").textContent = "Reading the camera…";
+  try {
+    const [status, summary, config] = await Promise.all([
+      api("/api/status"),
+      api("/api/summary"),
+      api("/api/config"),
+    ]);
+    $("raw-out").textContent = rawReport(status, summary, config);
+  } catch (err) {
+    $("raw-out").textContent = err.message;
+  }
+}
+$("raw-reload").onclick = () => loadRaw();
 async function loadControls() {
   $("controls-out").textContent = "Reading the camera…";
   try {

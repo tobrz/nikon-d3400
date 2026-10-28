@@ -133,7 +133,7 @@ sudo systemctl restart nikon-d3400
 
 ## Features
 
-The page has eight tabs. Controls are read from the body over USB when it is plugged in. The menu is not a fixed list baked into the page.
+The page has ten tabs. Controls are read from the body over USB when it is plugged in. The menu is not a fixed list baked into the page.
 
 ### Guide
 
@@ -150,6 +150,10 @@ The same planner also covers lightning, timelapse, a general night frame, and a 
 **Start live view** asks the body for a preview and keeps requesting frames. Near and Far buttons drive `manualfocusdrive` in steps of 1, 2, and 3. **Autofocus** sends `autofocusdrive`. The lens switch wants M for the near/far steps and A for autofocus.
 
 Live view and remote focus are attempted. Some Nikon bodies refuse them over USB. When the D3400 refuses, the text under the picture is the gphoto2 error. Treat that message as the result until a connected body proves the control works.
+
+### Raw
+
+The Raw tab is the body's own report: the gphoto2 summary, the capture abilities, and every control with its path, whether it is writable, and its current value. Lens identity is in that summary as Lens ID, Lens Type, and the minimum and maximum focal length. The D3400 sends those as numbers and millimeters, not the name printed on the lens barrel.
 
 ### Menu
 
