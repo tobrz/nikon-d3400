@@ -78,6 +78,21 @@ On the Wi-Fi tab, enter the house network name and password and choose **Remembe
 
 After it joins, open `http://nikon-d3400.local`, or the address your router gives the host `nikon-d3400`.
 
+## In the field on Starlink
+
+Starlink is a normal Wi-Fi network with internet. Save it once and the Pi joins it whenever it is in range. Your phone or laptop stays on Starlink too. The page is `http://nikon-d3400.local`, and **Update from git** works from there.
+
+The first time the Pi does not know Starlink yet, so it brings up its own access point, which has no internet:
+
+1. Join Wi-Fi `Nikon-D3400` from the phone. Password `nikon-d3400`.
+2. Open `http://192.168.50.1` and sign in with `nikon-d3400`.
+3. On the Wi-Fi tab, enter the Starlink network name and password and choose **Remember this network**.
+4. The Pi leaves its access point and joins Starlink. Join Starlink on the phone as well.
+5. Open `http://nikon-d3400.local`. If that name is not there yet, use the address the Starlink app shows for `nikon-d3400`. The first join is also when the Pi installs its packages, so give it the rest of the 10 minutes.
+6. On the Wi-Fi tab, choose **Update from git**.
+
+The next time you are at the dish, the Pi joins Starlink by itself. Skip the access-point steps.
+
 Then move the USB cable to the camera.
 
 - Pi Zero 2 W: the USB port is in host mode. Use a USB-OTG host adapter and a USB-A to micro-USB cable. Remove the ethernet adapter first. The Pi is on Wi-Fi now.
@@ -97,13 +112,13 @@ Sign in as `camera`. The factory password is `nikon-d3400`. The share is read-on
 
 The same login works with `smb://` and the ethernet address your router gave the Pi. That address can change. The name `nikon-d3400.local` is the one to keep.
 
-A git update installs this share. The first image does too, as long as ethernet has a route during that first boot.
+A git update installs this share. The first image does too, once the Pi has a route to the internet, either ethernet or Starlink.
 
 ## Update without imaging the card again
 
 The Pi keeps its own checkout and can pull this public repo.
 
-1. Give the Pi a route to the internet. Plug in ethernet, or join a house Wi-Fi network from the Wi-Fi tab. The standalone `Nikon-D3400` access point has no upstream, so the button stops and tells you that.
+1. Give the Pi a route to the internet. Ethernet, house Wi-Fi, and Starlink all count. The standalone `Nikon-D3400` access point has no upstream, so the button stops and tells you that.
 2. Open the Wi-Fi tab.
 3. Choose **Update from git**.
 
