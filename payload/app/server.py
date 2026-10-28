@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
@@ -403,14 +404,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"saved": True, "mode": mode, "networks": [item["ssid"] for item in networks]})
 
     def _shots(self):
-        folder = os.path.join(DATA, "shots")
-        rows = []
-        for name in sorted(os.listdir(folder), reverse=True):
-            path = os.path.join(folder, name)
-            if not os.path.isfile(path):
-                continue
-            rows.append({"name": name, "size": os.path.getsize(path)})
-        return rows[:200]
+        return list_shot_rows(os.path.join(DATA, "shots"))
 
     def _pull(self, body):
         folder = str(body.get("folder", ""))
@@ -433,11 +427,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "No such frame"})
             return
         query = parse_qs(urlparse(self.path).query)
-        if "preview" in query and not name.lower().endswith((".jpg", ".jpeg")):
+        if "preview" in query and not name.lower().endswith((".jpg", ".jpeg", ".mp4")):
             preview = self._embedded_preview(path)
             if preview:
                 self._send(200, preview, "image/jpeg")
                 return
+            self._send(404, {"error": "No preview in that file"})
+            return
         lowered = name.lower()
         if lowered.endswith((".jpg", ".jpeg")):
             kind = "image/jpeg"
@@ -451,12 +447,17 @@ class Handler(BaseHTTPRequestHandler):
     def _embedded_preview(self, path):
         if not shutil.which("exiftool"):
             return b""
-        try:
-            proc = subprocess.run(["exiftool", "-b", "-PreviewImage", path], capture_output=True, timeout=30)
-        except (OSError, subprocess.TimeoutExpired):
-            return b""
-        if proc.returncode == 0 and proc.stdout[:2] == b"\xff\xd8":
-            return proc.stdout
+        for tag in ("PreviewImage", "JpgFromRaw", "OtherImage"):
+            try:
+                proc = subprocess.run(
+                    ["exiftool", "-b", "-" + tag, path],
+                    capture_output=True,
+                    timeout=30,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return b""
+            if proc.returncode == 0 and proc.stdout[:2] == b"\xff\xd8":
+                return proc.stdout
         return b""
 
     def _zip_shots(self):
@@ -491,7 +492,38 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": str(exc)})
 
 
+def list_shot_rows(folder):
+    """Newest picture first. Name order put the raw file ahead of its JPEG."""
+    rows = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    for name in names:
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        rows.append({"name": name, "size": stat.st_size, "mtime": stat.st_mtime})
+    rows.sort(key=lambda row: (row["mtime"], row["name"]), reverse=True)
+    return rows[:200]
+
+
+def ensure_exiftool():
+    """The shots page reads a JPEG out of a NEF. This Pi was imaged before that tool was present."""
+    if shutil.which("exiftool"):
+        return
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return
+    subprocess.run(["apt-get", "update"], timeout=180, check=False)
+    subprocess.run(["apt-get", "install", "-y", "libimage-exiftool-perl"], timeout=300, check=False)
+
+
 def main():
+    threading.Thread(target=ensure_exiftool, daemon=True).start()
     port = int(os.environ.get("NIKON_PORT", "80"))
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 

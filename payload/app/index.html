@@ -345,10 +345,12 @@
       <a class="ghost" id="zip-link" href="/api/shots.zip">Download all on the Pi</a>
     </div>
     <p id="offload-state" class="muted"></p>
+    <h2>Latest on the Pi</h2>
+    <p class="muted">Pictures taken from this page land here, newest first. A raw file and its JPEG are one picture. The JPEG is what you see.</p>
+    <div id="shots-out"></div>
+    <h2>Still on the camera</h2>
     <p id="card-state" class="muted"></p>
     <div id="card-out"></div>
-    <h2>Already on the Pi</h2>
-    <div id="shots-out"></div>
   </section>
 
   <section id="wifi" class="panel">
@@ -797,26 +799,56 @@ async function authedImage(url) {
   if (!blob.type.startsWith("image/")) return "";
   return URL.createObjectURL(blob);
 }
+function shotGroups(shots) {
+  const groups = [];
+  const index = new Map();
+  for (const shot of shots) {
+    if (/\.mp4$/i.test(shot.name)) {
+      groups.push({key: shot.name, image: "", files: [shot], movie: true});
+      continue;
+    }
+    const stem = shot.name.replace(/\.[^.]+$/, "");
+    let group = index.get(stem);
+    if (!group) {
+      group = {key: stem, image: "", files: [], movie: false};
+      index.set(stem, group);
+      groups.push(group);
+    }
+    group.files.push(shot);
+    if (/\.jpe?g$/i.test(shot.name)) group.image = shot.name;
+  }
+  for (const group of groups) {
+    if (group.image) continue;
+    const raw = group.files.find((shot) => /\.nef$/i.test(shot.name));
+    if (raw) group.image = raw.name;
+  }
+  return groups;
+}
 async function loadShots() {
   const data = await api("/api/shots");
-  const shots = data.shots || [];
-  $("shots-out").innerHTML = shots.length ? `<div class="gallery">${shots.map((shot) => {
-    const movie = /\.mp4$/i.test(shot.name);
-    const picture = movie ? "" : `<img alt="${shot.name}" data-pi="${shot.name}">`;
-    return `<figure class="shot">${picture}<figcaption class="muted">${shot.name}</figcaption><button type="button" data-save="${shot.name}">${movie ? "Play or download" : "Download"}</button></figure>`;
+  const groups = shotGroups(data.shots || []);
+  $("shots-out").innerHTML = groups.length ? `<div class="gallery">${groups.map((group) => {
+    if (group.movie) {
+      const name = group.files[0].name;
+      return `<figure class="shot"><figcaption class="muted">${name}</figcaption><button type="button" data-save="${name}">Play or download</button></figure>`;
+    }
+    const raw = group.image && !/\.jpe?g$/i.test(group.image);
+    const image = group.image ? `<img alt="${group.key}" data-pi="${group.image}"${raw ? ' data-raw="1"' : ""}>` : "";
+    const buttons = group.files.map((shot) => `<button type="button" data-save="${shot.name}">${shot.name.split(".").pop().toUpperCase()}</button>`).join("");
+    return `<figure class="shot">${image}<figcaption class="muted">${group.key}</figcaption>${buttons}</figure>`;
   }).join("")}</div>` : "<p class='muted'>No frames on the Pi yet.</p>";
   $("shots-out").querySelectorAll("[data-save]").forEach((btn) => { btn.onclick = () => saveToPhone(btn.dataset.save); });
-  for (const img of $("shots-out").querySelectorAll("[data-pi]")) {
-    const name = img.dataset.pi;
-    const preview = /\.jpe?g$/i.test(name) ? "" : "?preview=1";
+  const card = loadCameraPictures();
+  await Promise.all([...$("shots-out").querySelectorAll("[data-pi]")].map(async (img) => {
+    const preview = img.dataset.raw ? "?preview=1" : "";
     try {
-      const url = await authedImage("/shots/" + encodeURIComponent(name) + preview);
+      const url = await authedImage("/shots/" + encodeURIComponent(img.dataset.pi) + preview);
       if (url) img.src = url;
     } catch (err) {
       img.alt = err.message;
     }
-  }
-  loadCameraPictures();
+  }));
+  await card;
 }
 $("zip-link").onclick = async (ev) => {
   ev.preventDefault();
