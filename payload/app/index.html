@@ -206,7 +206,7 @@
 
   <section id="wifi" class="panel">
     <h2>Wi-Fi</h2>
-    <p class="muted">Known networks are tried first. If none are in range, the Pi is an access point at <strong>192.168.50.1</strong> and hands your phone an address. Saving a home network from this access point will make the Pi leave it.</p>
+    <p class="muted">On a new Pi the page is up before the camera tools are installed. Join a network that has internet here. Setup then downloads those tools. Saving a network from the Nikon-D3400 access point makes the Pi leave it, so join that same network on this phone and open <strong>http://nikon-d3400.local</strong>.</p>
     <label for="ssid">Network name</label>
     <input id="ssid" autocomplete="off">
     <label for="wifi-pw">Password</label>
@@ -276,7 +276,7 @@ $("login").onsubmit = async (ev) => {
 async function refresh() {
   try {
     const data = await api("/api/status");
-    const cam = data.camera ? data.camera.model : (data.gphoto2 ? "USB quiet" : "gphoto2 still installing");
+    const cam = data.camera ? data.camera.model : (data.gphoto2 ? "USB quiet" : "Join Wi-Fi with internet to finish setup");
     const wifi = data.wifi || {};
     const where = wifi.ap_up ? "access point 192.168.50.1" : (wifi.client_connected ? "joined a network" : "Wi-Fi settling");
     const rev = data.revision ? " · " + data.revision : "";

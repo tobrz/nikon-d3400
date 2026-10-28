@@ -1,7 +1,7 @@
 [Unit]
 Description=Nikon D3400 web console
-After=network-online.target nikon-wifi.service
-Wants=network-online.target
+After=NetworkManager.service
+Wants=nikon-wifi.service
 
 [Service]
 Type=simple

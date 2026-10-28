@@ -8,7 +8,7 @@ echo "---- $(date) ----"
 if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null || ! command -v smbd >/dev/null; then
   if ! ip route | grep -q '^default'; then
     if ! command -v gphoto2 >/dev/null || ! command -v git >/dev/null; then
-      echo "No default route yet. Plug in ethernet."
+      echo "No default route yet. Join a Wi-Fi network with internet from the page."
       exit 1
     fi
   else
@@ -46,3 +46,9 @@ if [ -x /opt/nikon-d3400/samba-setup.sh ]; then
   /opt/nikon-d3400/samba-setup.sh || echo "samba share skipped"
 fi
 echo "ready"
+# One reboot after packages, so a USB host overlay is applied. The page is
+# already up before this, and it comes back on the network just joined.
+if [ ! -f /var/lib/nikon-d3400/first-reboot-done ]; then
+  touch /var/lib/nikon-d3400/first-reboot-done
+  systemd-run --unit=nikon-first-reboot --on-active=8s /sbin/reboot || true
+fi

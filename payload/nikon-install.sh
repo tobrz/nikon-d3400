@@ -69,13 +69,12 @@ EOF
 fi
 
 systemctl enable ssh || true
-for unit in nikon-bootstrap.service nikon-wifi.service nikon-d3400.service; do
+for unit in nikon-wifi.service nikon-d3400.service nikon-bootstrap.service; do
   systemctl enable "$unit" || true
-  systemctl start "$unit" || true
 done
-
-if [ ! -f /var/lib/nikon-d3400/first-reboot-done ]; then
-  touch /var/lib/nikon-d3400/first-reboot-done
-  systemd-run --unit=nikon-first-reboot --on-active=25s /sbin/reboot || true
-fi
+# The page and the access point come up before packages. Bootstrap waits
+# for a route, then installs. Starting it here must not block the page.
+systemctl start --no-block nikon-wifi.service || true
+systemctl start --no-block nikon-d3400.service || true
+systemctl start --no-block nikon-bootstrap.service || true
 echo "install script finished"

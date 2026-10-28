@@ -109,6 +109,11 @@ def _client_is_up():
     return False
 
 
+def nudge_setup():
+    """Run package setup once a default route exists. Do not interrupt a run already going."""
+    _run(["systemctl", "start", "--no-block", "nikon-bootstrap.service"], timeout=15)
+
+
 def bringup(path):
     """Try known networks, then start the standalone access point."""
     _run(["rfkill", "unblock", "wifi"], timeout=8)
@@ -128,9 +133,11 @@ def bringup(path):
         if connected.returncode == 0:
             _run(["nmcli", "con", "down", AP_NAME], timeout=15)
             _run(["nmcli", "con", "modify", name, "connection.autoconnect", "yes", "connection.autoconnect-priority", "50"], timeout=15)
+            nudge_setup()
             return {"mode": "client", "ssid": network["ssid"], "addresses": addresses()}
     ensure_ap_profile()
     if _client_is_up():
+        nudge_setup()
         return {"mode": "client", "ssid": "", "addresses": addresses()}
     up = _run(["nmcli", "con", "up", AP_NAME], timeout=25)
     if up.returncode != 0:

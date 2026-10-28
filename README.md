@@ -45,32 +45,24 @@ A later software change does not need this step. Use the web update below. Image
 
 ## How long the first boot takes
 
-Plan on about 10 minutes from the moment you apply power. Give a slow network or a slow card 20 minutes before you pull it out to read the log.
-
-On a Pi 4 with ethernet, timed from one real first boot:
-
-- About 2 minutes: the Pi answers on the network as `nikon-d3400`. SSH is up. The web page may still be installing.
-- The Pi reboots once by itself, a few minutes in. That reboot is part of setup. Leave it plugged in.
-- About 10 minutes: open the page. Packages, including the picture share, are in place by then.
-- On a Pi with 2 GB of RAM or more, the optional speech model can still be downloading after the page is up. The written guide works before that finishes. A Pi Zero 2 W skips the model.
-
-Use the ethernet address from your router, or `http://nikon-d3400.local` once the name appears. The address `http://192.168.50.1` is only for the Pi's own Wi-Fi, when no house network is saved.
+The page comes up before the camera tools are installed. Plan on a couple of minutes from power-on until `Nikon-D3400` appears. Package setup starts after the Pi has a route to the internet, and on a Pi 4 that is several more minutes. The Pi reboots once after that setup finishes, then the page comes back. Give a slow link 20 minutes before you pull the card to read the log.
 
 ## First boot
 
-Leave the camera unplugged. Leave the keyboard, mouse, and HDMI unplugged. Plug in ethernet.
+Leave the camera unplugged. Leave the keyboard, mouse, and HDMI unplugged. Ethernet is optional. The page is enough.
 
-On a Pi Zero 2 W, put a USB ethernet adapter in the only USB port for this boot. On a Pi 3, 4, or 5, use the ethernet jack.
-
-Power the Pi. There is nothing to click. Cloud-init creates the user `camera`, turns on SSH, and runs `nikon-install.sh`. That script sets the hostname to `nikon-d3400`, installs the console to `/opt/nikon-d3400`, and reboots once about 25 seconds later. `nikon-bootstrap` then installs `gphoto2`, `avahi-daemon`, and `git` from the ethernet connection. On a Pi with at least 2 GB of RAM it also tries to install Ollama and the small model `qwen2.5:0.5b`. A Pi Zero 2 W skips that model. The written guide works either way.
+Power the Pi. Cloud-init creates the user `camera`, turns on SSH, and starts the page and the access point. It does not wait for packages.
 
 When the Wi-Fi network `Nikon-D3400` appears:
 
 1. Join it. Password `nikon-d3400`. The Pi runs DHCP, so the phone or laptop gets an address on `192.168.50.0/24`.
 2. Open `http://192.168.50.1`.
-3. Sign in with `nikon-d3400`.
+3. Sign in with `nikon-d3400`. The status line says to join a Wi-Fi network with internet.
+4. On the Wi-Fi tab, save Starlink or the house network. The Pi leaves its access point and joins that network. Join the same network on the phone.
+5. Open `http://nikon-d3400.local`. Setup downloads `gphoto2`, `git`, the picture share, and ExifTool. On a Pi with at least 2 GB of RAM it also tries the small on-device model. A Pi Zero 2 W skips that model. The written guide works either way.
+6. The Pi reboots once when that finishes. Open the page again. The camera can be plugged in after that.
 
-If that network never appears, pull the card, mount the boot partition on the Mac, and read `nikon-install.log`.
+If `Nikon-D3400` never appears, pull the card, mount the boot partition on the Mac, and read `nikon-install.log`. Ethernet still works. If a cable is plugged in and the router gives the Pi an address, setup starts on its own and the page is also at `http://nikon-d3400.local`.
 
 ## Join the house Wi-Fi
 
