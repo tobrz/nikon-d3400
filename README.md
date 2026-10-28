@@ -181,7 +181,7 @@ One test frame. The guide applies ISO 800, f/3.5, and a long shutter when the bo
 
 ### Shots
 
-**Show pictures on the camera** lists the card in the D3400. **Copy, then download here** pulls that file onto the Pi and saves it to the phone or laptop. Frames already on the Pi can be downloaded one by one. **Download all on the Pi** is a zip of those files. The zip is stored, not recompressed, so NEFs stay intact.
+**Show pictures on the camera** lists the card in the D3400. **Copy, then download here** pulls that file onto the Pi and saves it to the phone or laptop. **Offload camera card to the Pi** copies every picture onto the Pi, then deletes only the copies that arrived. A picture that fails to copy stays on the camera. That is how you free the camera card in the field. The copies stay on the Pi until you drag them into Photos from `smb://nikon-d3400.local/shots`. Frames already on the Pi can be downloaded one by one. **Download all on the Pi** is a zip of those files. The zip is stored, not recompressed, so NEFs stay intact.
 
 ### Wi-Fi
 

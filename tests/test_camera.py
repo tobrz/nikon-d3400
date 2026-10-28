@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from camera import parse_configs, parse_files
+from camera import deletion_order, parse_configs, parse_files
 from guide import classify, plan
 
 
@@ -48,6 +48,16 @@ class ParseTests(unittest.TestCase):
         rows = parse_files(text)
         self.assertEqual(rows[0]["name"], "DSC_0001.JPG")
         self.assertEqual(rows[0]["index"], 1)
+
+    def test_deletion_order_is_highest_index_first_in_each_folder(self):
+        files = [
+            {"folder": "/a", "index": 1, "name": "one.jpg"},
+            {"folder": "/a", "index": 3, "name": "three.jpg"},
+            {"folder": "/b", "index": 2, "name": "two.jpg"},
+            {"folder": "/a", "index": 2, "name": "two-a.jpg"},
+        ]
+        ordered = [(item["folder"], item["index"]) for item in deletion_order(files)]
+        self.assertEqual(ordered, [("/a", 3), ("/a", 2), ("/a", 1), ("/b", 2)])
 
     def test_milky_way_plan(self):
         self.assertEqual(classify("I want a night shot of the Milky Way"), "milky")

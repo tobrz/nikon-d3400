@@ -144,6 +144,8 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: CAMERA.focus(str(body.get("direction", ""))))
         elif path == "/api/camera-files/pull":
             self._pull(body)
+        elif path == "/api/offload/start":
+            self._guard(JOBS.start_offload)
         elif path == "/api/apply":
             settings = body.get("settings") or {}
             self._guard(lambda: CAMERA.apply_settings({str(k): str(v) for k, v in settings.items()}))

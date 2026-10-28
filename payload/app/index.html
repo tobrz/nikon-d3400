@@ -173,10 +173,13 @@
     <h2>Pictures</h2>
     <p class="muted">Copy a frame off the D3400, then download it onto this phone or laptop. The zip is everything already stored on the Pi.</p>
     <p class="muted">On a Mac, connect to <strong>smb://nikon-d3400.local/shots</strong> as user <strong>camera</strong>. Drag the files straight into Photos. The share is read-only.</p>
+    <p class="muted">Offload copies every picture onto the Pi, then deletes only the copies that arrived. Anything that fails stays on the camera. The Pi copies are on the shots share for Photos.</p>
     <div class="row">
+      <button type="button" id="offload">Offload camera card to the Pi</button>
       <button type="button" id="card-list">Show pictures on the camera</button>
       <a class="ghost" id="zip-link" href="/api/shots.zip" style="display:inline-block;text-align:center;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid var(--line)">Download all on the Pi</a>
     </div>
+    <p id="offload-state" class="muted"></p>
     <div id="card-out"></div>
     <h2>Already on the Pi</h2>
     <div id="shots-out"></div>
@@ -263,6 +266,11 @@ async function refresh() {
     const jobs = data.jobs || {};
     $("tl-state").textContent = jobs.timelapse ? JSON.stringify(jobs.timelapse) : "";
     $("ln-state").textContent = jobs.lightning ? JSON.stringify(jobs.lightning) : "";
+    const off = jobs.offload || {};
+    const offLine = $("offload-state");
+    if (offLine && (off.running || off.note || off.error)) {
+      offLine.textContent = [off.note, off.error].filter(Boolean).join(" ");
+    }
   } catch (err) {
     $("status").textContent = err.message;
   }
@@ -412,6 +420,19 @@ async function saveToPhoneZip() {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+$("offload").onclick = async () => {
+  const ok = confirm("Copy every picture onto the Pi, then delete those copies from the camera card? A picture that does not copy stays on the camera.");
+  if (!ok) return;
+  $("offload").disabled = true;
+  $("offload-state").textContent = "Starting the offload.";
+  try {
+    await api("/api/offload/start", {method: "POST", body: {}});
+    refresh();
+  } catch (err) {
+    $("offload-state").textContent = err.message;
+  }
+  $("offload").disabled = false;
+};
 $("card-list").onclick = async () => {
   $("card-out").textContent = "Reading the card in the camera…";
   try {

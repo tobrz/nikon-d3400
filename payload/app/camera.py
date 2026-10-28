@@ -72,6 +72,21 @@ def parse_files(text):
     return files
 
 
+def deletion_order(files):
+    """Highest index first inside each folder.
+
+    gphoto2 numbers the files that are still on the card. Deleting a lower
+    number first can make a later number point at a different picture.
+    """
+    grouped = {}
+    for item in files:
+        grouped.setdefault(item["folder"], []).append(item)
+    ordered = []
+    for folder in grouped:
+        ordered.extend(sorted(grouped[folder], key=lambda row: row["index"], reverse=True))
+    return ordered
+
+
 class Camera:
     def __init__(self, shots_dir):
         self.shots_dir = shots_dir
@@ -219,7 +234,14 @@ class Camera:
                 ["--folder", folder, "--get-file", str(index), "--filename", dest, "--force-overwrite"],
                 timeout=120,
             )
-        return {"name": os.path.basename(dest), "path": dest}
+        if os.path.getsize(dest) <= 0:
+            raise CameraError(f"{os.path.basename(dest)} arrived empty, so it was not removed from the camera.")
+        return {"name": os.path.basename(dest), "path": dest, "bytes": os.path.getsize(dest)}
+
+    def delete_file(self, folder, index):
+        with self._lock:
+            self.run(["--folder", folder, "--delete-file", str(index)], timeout=40)
+        return {"folder": folder, "index": index}
 
     def list_files(self):
         with self._lock:
