@@ -74,6 +74,31 @@ def parse_files(text):
     return files
 
 
+def index_spec(indexes):
+    """Turn file numbers into one gphoto2 range, such as 1-3,5."""
+    numbers = sorted({int(number) for number in indexes})
+    if not numbers:
+        return ""
+    parts = []
+    start = previous = numbers[0]
+    for number in numbers[1:]:
+        if number == previous + 1:
+            previous = number
+            continue
+        parts.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = number
+    parts.append(str(start) if start == previous else f"{start}-{previous}")
+    return ",".join(parts)
+
+
+def saved_thumbnail_name(filename):
+    """gphoto2 stores a card thumbnail as thumb_<camera file name>."""
+    name = os.path.basename(filename or "")
+    if name.startswith("thumb_"):
+        return name[len("thumb_"):]
+    return name
+
+
 def thumb_cache_key(folder, name):
     """Stable file name for one camera picture. The index changes when files are deleted."""
     folder = (folder or "").replace("\\", "/").strip("/")
@@ -382,6 +407,51 @@ class Camera:
         if not jpeg_payload(frame):
             raise CameraError(detail or "The camera sent no thumbnail for this file.")
         return frame
+
+    def thumbnail_range(self, folder, indexes, dest_dir):
+        """Download many thumbnails in one gphoto2 session.
+
+        A separate session per picture spends most of the time starting gphoto2.
+        Returns camera file name to JPEG bytes.
+        """
+        spec = index_spec(indexes)
+        if not spec:
+            return {}
+        os.makedirs(dest_dir, exist_ok=True)
+        for name in os.listdir(dest_dir):
+            path = os.path.join(dest_dir, name)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        pattern = os.path.join(dest_dir, "%f.%C")
+        error = ""
+        with self._lock:
+            try:
+                self.run(
+                    ["--folder", folder, "--get-thumbnail", spec, "--filename", pattern, "--force-overwrite"],
+                    timeout=max(60, 4 * len(spec.split(",")) + 3 * len(indexes)),
+                )
+            except CameraError as exc:
+                error = str(exc)
+        found = {}
+        for name in os.listdir(dest_dir):
+            path = os.path.join(dest_dir, name)
+            if not os.path.isfile(path):
+                continue
+            with open(path, "rb") as handle:
+                frame = jpeg_payload(handle.read())
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            label = saved_thumbnail_name(name)
+            if frame and label:
+                found[label] = frame
+        if not found and error:
+            raise CameraError(error)
+        return found
 
     def delete_file(self, folder, index):
         with self._lock:

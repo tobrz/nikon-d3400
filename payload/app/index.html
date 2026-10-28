@@ -259,7 +259,7 @@
   </section>
   <section id="shots" class="panel">
     <h2>Pictures</h2>
-    <p class="muted">Pictures already on the Pi, and thumbnails from the camera card, show here. The first time, a thumbnail comes from the camera. After that the Pi keeps it, so the next visit is quicker. A thumbnail is not a full copy. Download, or offload, when you want the file itself.</p>
+    <p class="muted">Pictures already on the Pi, and thumbnails from the camera card, show here. Missing thumbnails are read in one pass, then kept on the Pi. A thumbnail is not a full copy. Download, or offload, when you want the file itself.</p>
     <p class="muted">On a Mac, connect to <strong>smb://nikon-d3400.local/shots</strong> as user <strong>camera</strong>. Drag the files straight into Photos. The share is read-only.</p>
     <p class="muted">Offload copies every picture onto the Pi, then deletes only the copies that arrived. Anything that fails stays on the camera. The Pi copies are on the shots share for Photos.</p>
     <div class="row">
@@ -268,6 +268,7 @@
       <a class="ghost" id="zip-link" href="/api/shots.zip">Download all on the Pi</a>
     </div>
     <p id="offload-state" class="muted"></p>
+    <p id="card-state" class="muted"></p>
     <div id="card-out"></div>
     <h2>Already on the Pi</h2>
     <div id="shots-out"></div>
@@ -710,7 +711,18 @@ async function loadCameraPictures() {
         btn.disabled = false;
       };
     });
-    for (const img of $("card-out").querySelectorAll("img")) {
+    $("card-state").textContent = "Getting the thumbnails from the camera in one pass…";
+    try {
+      const batch = await api("/api/camera-thumbs", {method: "POST", body: {files}});
+      const fetched = batch.fetched || 0;
+      $("card-state").textContent = fetched
+        ? "Saved " + fetched + " thumbnails on the Pi."
+        : "Using thumbnails already on the Pi.";
+      if ((batch.errors || []).length) $("card-state").textContent += " " + batch.errors[0];
+    } catch (err) {
+      $("card-state").textContent = err.message;
+    }
+    await Promise.all(Array.from($("card-out").querySelectorAll("img")).map(async (img) => {
       const url = "/api/camera-thumb?folder=" + encodeURIComponent(img.dataset.folder) + "&index=" + encodeURIComponent(img.dataset.index) + "&name=" + encodeURIComponent(img.dataset.name || "");
       try {
         const blobUrl = await authedImage(url);
@@ -718,7 +730,7 @@ async function loadCameraPictures() {
       } catch (err) {
         img.alt = err.message;
       }
-    }
+    }));
   } catch (err) { $("card-out").textContent = err.message; }
 }
 $("card-list").onclick = () => loadCameraPictures();

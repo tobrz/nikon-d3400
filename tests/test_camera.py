@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from camera import adopt_preview, deletion_order, jpeg_payload, live_view_block_reason, parse_configs, parse_files, preview_download_path, thumb_cache_key
+from camera import adopt_preview, deletion_order, index_spec, jpeg_payload, live_view_block_reason, parse_configs, parse_files, preview_download_path, saved_thumbnail_name, thumb_cache_key
 from guide import classify, plan
 
 
@@ -49,6 +49,11 @@ class ParseTests(unittest.TestCase):
         rows = parse_files(text)
         self.assertEqual(rows[0]["name"], "DSC_0001.JPG")
         self.assertEqual(rows[0]["index"], 1)
+
+    def test_index_spec_groups_a_run_of_file_numbers(self):
+        self.assertEqual(index_spec([3, 1, 2, 5]), "1-3,5")
+        self.assertEqual(index_spec([24]), "24")
+        self.assertEqual(saved_thumbnail_name("thumb_APB_3930.JPG"), "APB_3930.JPG")
 
     def test_thumb_cache_key_uses_the_folder_and_the_file_name(self):
         self.assertEqual(

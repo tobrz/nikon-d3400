@@ -160,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: CAMERA.set_movie(bool(body.get("recording"))))
         elif path == "/api/focus":
             self._guard(lambda: CAMERA.focus(str(body.get("direction", ""))))
+        elif path == "/api/camera-thumbs":
+            self._camera_thumbs(body)
         elif path == "/api/camera-files/pull":
             self._pull(body)
         elif path == "/api/offload/start":
@@ -316,6 +318,60 @@ class Handler(BaseHTTPRequestHandler):
                 handle.write(frame)
             os.replace(temporary, cached)
         self._send(200, frame, "image/jpeg")
+
+    def _store_thumb(self, folder, name, frame):
+        cached = os.path.join(DATA, "thumbs", thumb_cache_key(folder, name))
+        os.makedirs(os.path.dirname(cached), exist_ok=True)
+        temporary = cached + ".part"
+        with open(temporary, "wb") as handle:
+            handle.write(frame)
+        os.replace(temporary, cached)
+
+    def _camera_thumbs(self, body):
+        """Fill the local thumbnail cache for many card files in one camera session per folder."""
+        wanted = []
+        for item in (body.get("files") or [])[:40]:
+            if not isinstance(item, dict):
+                continue
+            folder = str(item.get("folder") or "")
+            name = str(item.get("name") or "")
+            if not folder.startswith("/") or ".." in folder:
+                continue
+            try:
+                index = int(item.get("index"))
+                thumb_cache_key(folder, name)
+            except (TypeError, ValueError):
+                continue
+            wanted.append({"folder": folder, "index": index, "name": name})
+        ready = []
+        missing = {}
+        for item in wanted:
+            cached = os.path.join(DATA, "thumbs", thumb_cache_key(item["folder"], item["name"]))
+            if os.path.isfile(cached) and os.path.getsize(cached) > 0:
+                ready.append(item["name"])
+                continue
+            missing.setdefault(item["folder"], []).append(item)
+        cached_count = len(ready)
+        errors = []
+        incoming = os.path.join(DATA, "thumbs", "incoming")
+        for folder, items in missing.items():
+            try:
+                found = CAMERA.thumbnail_range(folder, [item["index"] for item in items], incoming)
+            except CameraError as exc:
+                errors.append(str(exc))
+                continue
+            for item in items:
+                frame = found.get(item["name"])
+                if not frame:
+                    continue
+                self._store_thumb(folder, item["name"], frame)
+                ready.append(item["name"])
+        self._send(200, {
+            "ready": ready,
+            "cached": cached_count,
+            "fetched": len(ready) - cached_count,
+            "errors": errors,
+        })
 
     def _add_wifi(self, body):
         ssid = str(body.get("ssid", "")).strip()
