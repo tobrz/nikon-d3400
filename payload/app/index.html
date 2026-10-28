@@ -54,10 +54,18 @@
   button.ghost.ack, a.ghost.ack { background: #243024; border-color: var(--good); color: var(--good); transform: none; }
   button:focus-visible, a.ghost:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   button:disabled { opacity: 0.5; cursor: default; }
-  #live-bar { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
-  #live-bar.on { display: block; }
   .panel { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
   .panel.on { display: block; }
+  section.panel.shoot.on {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    section.panel.shoot.on { grid-template-columns: 1fr; }
+  }
+  #scene img.frame { display: block; width: 100%; min-height: 220px; object-fit: contain; background: #000; }
   label { display: block; color: var(--dim); font-size: 14px; margin: 10px 0 4px; }
   input, select { width: 100%; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -115,30 +123,18 @@
     <button class="ghost" type="button" data-tab="wifi">Wi-Fi</button>
   </nav>
 
-  <div id="live-bar" class="on">
-    <h2>Live view</h2>
-    <p class="muted">This picture stays up on every page that can take a shot. The dial needs to be on P, A, S, or M. An error stops the requests so the page does not keep releasing the shutter. Record uses the camera's movie control. The clip stays on the camera card.</p>
-    <img id="live" class="frame" alt="Live view appears here">
-    <p id="live-state" class="muted"></p>
-    <div class="row">
-      <button type="button" id="live-start">Start live view</button>
-      <button class="ghost" type="button" id="live-stop">Stop</button>
-      <button type="button" id="movie-start">Record video</button>
-      <button class="ghost" type="button" id="movie-stop">Stop recording</button>
+  <section id="guide" class="panel shoot on">
+    <div class="scene-slot">
+      <div id="scene">
+        <img id="live" class="frame" alt="What the camera sees">
+        <p id="live-state" class="muted"></p>
+        <div class="row">
+          <button type="button" id="live-start">Start</button>
+          <button class="ghost" type="button" id="live-stop">Stop</button>
+        </div>
+      </div>
     </div>
-    <div class="row">
-      <button class="ghost" type="button" data-focus="near3">Near 3</button>
-      <button class="ghost" type="button" data-focus="near2">Near 2</button>
-      <button class="ghost" type="button" data-focus="near1">Near 1</button>
-      <button type="button" data-focus="auto">Autofocus</button>
-      <button class="ghost" type="button" data-focus="far1">Far 1</button>
-      <button class="ghost" type="button" data-focus="far2">Far 2</button>
-      <button class="ghost" type="button" data-focus="far3">Far 3</button>
-    </div>
-    <p id="focus-state" class="muted"></p>
-  </div>
-
-  <section id="guide" class="panel on">
+    <div class="work">
     <h2>Walk me through a shot</h2>
     <p class="muted">This runs on the Pi. A tiny local model rephrases the plan when one is installed. The steps themselves are written for the D3400.</p>
     <label for="ask">What do you want?</label>
@@ -150,13 +146,34 @@
     </div>
     <p id="guide-model" class="pill"></p>
     <div id="guide-out"></div>
+    </div>
   </section>
 
-  <section id="live" class="panel">
-    <p class="muted">Focus steps need the lens on M. Autofocus needs it on A. The picture is the live view above.</p>
+  <section id="live" class="panel shoot">
+    <div class="scene-slot"></div>
+    <div class="work">
+      <h2>Focus and record</h2>
+      <p class="muted">The picture is the scene beside these controls. Focus steps need the lens on M. Autofocus needs it on A. Record uses the movie control. The clip stays on the camera card.</p>
+      <div class="row">
+        <button type="button" id="movie-start">Record video</button>
+        <button class="ghost" type="button" id="movie-stop">Stop recording</button>
+      </div>
+      <div class="row">
+        <button class="ghost" type="button" data-focus="near3">Near 3</button>
+        <button class="ghost" type="button" data-focus="near2">Near 2</button>
+        <button class="ghost" type="button" data-focus="near1">Near 1</button>
+        <button type="button" data-focus="auto">Autofocus</button>
+        <button class="ghost" type="button" data-focus="far1">Far 1</button>
+        <button class="ghost" type="button" data-focus="far2">Far 2</button>
+        <button class="ghost" type="button" data-focus="far3">Far 3</button>
+      </div>
+      <p id="focus-state" class="muted"></p>
+    </div>
   </section>
 
-  <section id="controls" class="panel">
+  <section id="controls" class="panel shoot">
+    <div class="scene-slot"></div>
+    <div class="work">
     <h2>Every menu item the body offers</h2>
     <p class="muted">Choices, on/off switches, number ranges, and text are all writable when the camera says they are. Read-only rows are shown and left alone. This list is the menu, read over USB, not a fixed catalog.</p>
     <label for="menu-filter">Find a setting</label>
@@ -164,6 +181,7 @@
     <div id="controls-out"></div>
     <div class="row"><button type="button" id="capture">Release shutter</button></div>
     <pre id="summary"></pre>
+    </div>
   </section>
 
   <section id="raw" class="panel">
@@ -178,7 +196,9 @@
     <pre id="raw-out">Open this tab with the camera on.</pre>
   </section>
 
-  <section id="timelapse" class="panel">
+  <section id="timelapse" class="panel shoot">
+    <div class="scene-slot"></div>
+    <div class="work">
     <h2>Tripod timelapse</h2>
     <label for="interval">Seconds between frames</label>
     <input id="interval" type="number" min="3" value="10">
@@ -189,9 +209,12 @@
       <button class="ghost" type="button" id="tl-stop">Stop</button>
     </div>
     <p id="tl-state" class="muted"></p>
+    </div>
   </section>
 
-  <section id="lightning" class="panel">
+  <section id="lightning" class="panel shoot">
+    <div class="scene-slot"></div>
+    <div class="work">
     <h2>Lightning</h2>
     <p class="muted">Sprays the shutter, then copies the new frames off the card. A digital light sensor can be added later on GPIO 17. USB is slower than the bolt, so leave the camera in manual focus and manual exposure first.</p>
     <label for="frames">How many releases</label>
@@ -203,13 +226,17 @@
       <button class="ghost" type="button" id="ln-stop">Stop</button>
     </div>
     <p id="ln-state" class="muted"></p>
+    </div>
   </section>
 
-  <section id="night" class="panel">
+  <section id="night" class="panel shoot">
+    <div class="scene-slot"></div>
+    <div class="work">
     <h2>Night test frame</h2>
     <p class="muted">Applies ISO 800, f/3.5, and a long shutter if the body allows those names, then takes one frame.</p>
     <button type="button" id="night-go">Set night exposure and shoot</button>
     <p id="night-state" class="muted"></p>
+    </div>
   </section>
 
   <section id="place" class="panel">
@@ -309,8 +336,9 @@ function show(tab) {
   document.querySelectorAll("nav button").forEach((el) => {
     el.classList.toggle("ghost", el.dataset.tab !== tab);
   });
-  const bar = $("live-bar");
-  if (bar) bar.classList.toggle("on", shootTabs.includes(tab));
+  const scene = $("scene");
+  const slot = document.querySelector("#" + tab + " .scene-slot");
+  if (scene && slot) slot.appendChild(scene);
 }
 document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => {
   show(btn.dataset.tab);
@@ -670,7 +698,7 @@ async function loadCameraPictures() {
     const data = await api("/api/camera-files");
     const files = (data.files || []).slice().reverse().slice(0, 24);
     const extra = (data.files || []).length - files.length;
-    $("card-out").innerHTML = files.length ? `<div class="gallery">${files.map((file) => `<figure><img alt="${file.name}" data-folder="${file.folder}" data-index="${file.index}"><figcaption class="muted">${file.name}</figcaption><button type="button" data-folder="${file.folder}" data-index="${file.index}" data-name="${file.name}">Copy, then download</button></figure>`).join("")}</div>${extra > 0 ? `<p class="muted">Showing the newest 24 of ${(data.files || []).length}.</p>` : ""}` : "<p class='muted'>The camera card looks empty.</p>";
+    $("card-out").innerHTML = files.length ? `<div class="gallery">${files.map((file) => `<figure><img alt="${file.name}" data-folder="${file.folder}" data-index="${file.index}" data-name="${file.name}"><figcaption class="muted">${file.name}</figcaption><button type="button" data-folder="${file.folder}" data-index="${file.index}" data-name="${file.name}">Copy, then download</button></figure>`).join("")}</div>${extra > 0 ? `<p class="muted">Showing the newest 24 of ${(data.files || []).length}.</p>` : ""}` : "<p class='muted'>The camera card looks empty.</p>";
     $("card-out").querySelectorAll("button").forEach((btn) => {
       btn.onclick = async () => {
         btn.disabled = true;
@@ -683,7 +711,7 @@ async function loadCameraPictures() {
       };
     });
     for (const img of $("card-out").querySelectorAll("img")) {
-      const url = "/api/camera-thumb?folder=" + encodeURIComponent(img.dataset.folder) + "&index=" + encodeURIComponent(img.dataset.index);
+      const url = "/api/camera-thumb?folder=" + encodeURIComponent(img.dataset.folder) + "&index=" + encodeURIComponent(img.dataset.index) + "&name=" + encodeURIComponent(img.dataset.name || "");
       try {
         const blobUrl = await authedImage(url);
         if (blobUrl) img.src = blobUrl;

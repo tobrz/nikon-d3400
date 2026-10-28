@@ -22,7 +22,12 @@ def parse_published(page):
 
 
 def parse_camera(summary):
-    match = re.search(r"Device Version:\s*(\S+)", summary or "")
+    """The body's firmware. gphoto2 labels it Device Version or Version."""
+    text = summary or ""
+    match = re.search(r"Device Version:\s*(\S+)", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"(?m)^\s*Version:\s*(V?\d+\.\d+)\s*$", text)
     return match.group(1) if match else ""
 
 

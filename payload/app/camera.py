@@ -74,6 +74,16 @@ def parse_files(text):
     return files
 
 
+def jpeg_payload(blob):
+    """Return the JPEG inside a gphoto2 stdout buffer, if one is there."""
+    if not blob:
+        return b""
+    start = blob.find(b"\xff\xd8")
+    if start < 0:
+        return b""
+    return blob[start:]
+
+
 def preview_download_path(requested):
     """gphoto2 saves a preview as thumb_<name> in the same directory.
 
@@ -319,16 +329,46 @@ class Camera:
             self.run(["--set-config", f"movie={value}"], timeout=30)
         return {"recording": bool(recording)}
 
-    def thumbnail(self, folder, index, dest):
-        """Small JPEG from the camera card. This does not copy the full picture."""
+    def thumbnail(self, folder, index, dest, name=""):
+        """Small JPEG from the camera card. This does not copy the full picture.
+
+        gphoto2 saves that JPEG as thumb_<name>, and a missing thumbnail still
+        exits 0. Read the bytes from stdout, then from the thumb_ file.
+        """
+        target = name if name and "/" not in name and ".." not in name else str(index)
         with self._lock:
+            try:
+                done = subprocess.run(
+                    ["gphoto2", "--folder", folder, "--get-thumbnail", target, "--stdout"],
+                    capture_output=True,
+                    timeout=30,
+                )
+            except FileNotFoundError as exc:
+                raise CameraError("gphoto2 is not installed yet. Plug in ethernet and let the first boot finish.") from exc
+            except subprocess.TimeoutExpired as exc:
+                raise CameraError("The camera did not answer in time. Wake it and set USB to MTP/PTP.") from exc
+            frame = jpeg_payload(done.stdout)
+            if frame:
+                return frame
+            detail = (done.stderr or b"").decode("utf-8", "replace").strip()
+            if done.returncode != 0:
+                raise CameraError(detail or f"gphoto2 failed ({done.returncode})")
+            for stale in (dest, preview_download_path(dest)):
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass
             self.run(
-                ["--folder", folder, "--get-thumbnail", str(index), "--filename", dest, "--force-overwrite"],
+                ["--folder", folder, "--get-thumbnail", target, "--filename", dest, "--force-overwrite"],
                 timeout=30,
             )
-        if not os.path.isfile(dest) or os.path.getsize(dest) <= 0:
-            raise CameraError("The camera did not return a thumbnail.")
-        return dest
+            if not adopt_preview(dest):
+                raise CameraError(detail or "The camera sent no thumbnail for this file.")
+            with open(dest, "rb") as handle:
+                frame = handle.read()
+        if not jpeg_payload(frame):
+            raise CameraError(detail or "The camera sent no thumbnail for this file.")
+        return frame
 
     def delete_file(self, folder, index):
         with self._lock:

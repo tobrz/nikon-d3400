@@ -294,13 +294,14 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._send(400, {"error": "Bad index"})
             return
+        name = (query.get("name") or [""])[0]
         dest = os.path.join(DATA, "thumb.jpg")
         try:
-            CAMERA.thumbnail(folder, index, dest)
+            frame = CAMERA.thumbnail(folder, index, dest, name=name)
         except CameraError as exc:
             self._send(502, {"error": str(exc)})
             return
-        self._file(dest, "image/jpeg")
+        self._send(200, frame, "image/jpeg")
 
     def _add_wifi(self, body):
         ssid = str(body.get("ssid", "")).strip()

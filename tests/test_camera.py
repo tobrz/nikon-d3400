@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from camera import adopt_preview, deletion_order, live_view_block_reason, parse_configs, parse_files, preview_download_path
+from camera import adopt_preview, deletion_order, jpeg_payload, live_view_block_reason, parse_configs, parse_files, preview_download_path
 from guide import classify, plan
 
 
@@ -49,6 +49,10 @@ class ParseTests(unittest.TestCase):
         rows = parse_files(text)
         self.assertEqual(rows[0]["name"], "DSC_0001.JPG")
         self.assertEqual(rows[0]["index"], 1)
+
+    def test_jpeg_payload_skips_text_before_the_image(self):
+        self.assertEqual(jpeg_payload(b"Saving\n\xff\xd8jpeg"), b"\xff\xd8jpeg")
+        self.assertEqual(jpeg_payload(b"no image"), b"")
 
     def test_preview_is_saved_under_the_thumb_name(self):
         requested = "/var/lib/nikon-d3400/preview.jpg"

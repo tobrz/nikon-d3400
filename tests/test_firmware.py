@@ -15,6 +15,11 @@ class FirmwareTests(unittest.TestCase):
     def test_summary_device_version(self):
         self.assertEqual(parse_camera("Device Version: V1.13\nVendor Extension: Nikon"), "V1.13")
 
+    def test_summary_version_line(self):
+        summary = "Model: D3400\n  Version: V1.13\n  Serial Number: 3313812\n"
+        self.assertEqual(parse_camera(summary), "V1.13")
+        self.assertEqual(compare(parse_camera(summary), "1.13")["relation"], "current")
+
     def test_same_version_is_current(self):
         result = compare("V1.13", "1.13")
         self.assertEqual(result["relation"], "current")

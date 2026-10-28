@@ -147,7 +147,7 @@ The same planner also covers lightning, timelapse, a general night frame, and a 
 
 ### Live view
 
-The live picture sits above Guide, Live view, Menu, Timelapse, Lightning, and Night, which are the pages that can release the shutter. It stays running when you move between those pages. **Record video** and **Stop recording** use the camera's movie control. The clip stays on the camera card.
+Guide, Menu, Timelapse, Lightning, Night, and Live view each show the scene beside that page's own controls. Press **Start** on the picture. It keeps running while you move between those pages. **Record video** and the focus steps are on the Live view tab. The clip stays on the camera card.
 
 ### Live view details
 
