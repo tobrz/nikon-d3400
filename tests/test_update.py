@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from update import UpdateError, copy_payload, has_default_route, revisions_match
+from update import UpdateError, copy_payload, format_update_log, has_default_route, parse_commits, parse_files, revisions_match
 
 
 class UpdateTests(unittest.TestCase):
@@ -47,6 +47,27 @@ class UpdateTests(unittest.TestCase):
                 self.assertEqual(handle.read(), "stay\n")
             mode = os.stat(os.path.join(install, "bootstrap.sh")).st_mode
             self.assertTrue(mode & stat.S_IXUSR)
+
+    def test_compare_lists_newest_commit_first(self):
+        payload = {
+            "commits": [
+                {"sha": "44b7aab111111", "commit": {"message": "Older subject\n\nOlder body."}},
+                {"sha": "ff32681aaaaaa", "commit": {"message": "Newer subject\n\nNewer body."}},
+            ],
+            "files": [
+                {"filename": "payload/app/index.html", "status": "modified"},
+                {"filename": "README.md", "status": "modified"},
+            ],
+        }
+        changes = parse_commits(payload)
+        self.assertEqual([item["rev"] for item in changes], ["ff32681", "44b7aab"])
+        self.assertEqual(changes[0]["body"], "Newer body.")
+        self.assertEqual(parse_files(payload), ["modified payload/app/index.html", "modified README.md"])
+        log = format_update_log("44b7aab", "ff32681", "1 new commit.", changes[:1], parse_files(payload), "")
+        self.assertIn("ff32681  Newer subject", log)
+        self.assertIn("Newer body.", log)
+        self.assertIn("Installed: 44b7aab", log)
+        self.assertIn("Files:", log)
 
     def test_copy_refuses_a_checkout_with_no_app(self):
         with tempfile.TemporaryDirectory() as tmp:

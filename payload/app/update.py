@@ -4,9 +4,12 @@ Pictures, the Wi-Fi list, and the page password live under /var/lib/nikon-d3400
 and are left in place. The standalone access point has no route to GitHub.
 """
 
+import json
 import os
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 
 REPO = "https://github.com/tobrz/nikon-d3400.git"
 BRANCH = "main"
@@ -123,8 +126,116 @@ def revisions_match(installed, remote):
     return remote.startswith(installed) or installed.startswith(remote)
 
 
+def github_repo():
+    text = REPO[:-4] if REPO.endswith(".git") else REPO
+    owner, name = text.rstrip("/").split("/")[-2:]
+    return owner, name
+
+
+def parse_commits(payload):
+    """Commit messages from a GitHub compare object or a commits list. Newest first."""
+    if isinstance(payload, dict):
+        items = payload.get("commits") or []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        return []
+    found = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        message = ((item.get("commit") or {}).get("message") or "").strip()
+        if not message:
+            continue
+        subject, _, body = message.partition("\n")
+        found.append({
+            "rev": (item.get("sha") or "")[:7],
+            "subject": subject.strip(),
+            "body": body.strip(),
+        })
+    found.reverse()
+    return found
+
+
+def parse_files(payload, limit=40):
+    if not isinstance(payload, dict):
+        return []
+    items = payload.get("files") or []
+    rows = []
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("filename") or "").strip()
+        status = (item.get("status") or "").strip()
+        if name:
+            rows.append((status + " " + name).strip())
+    extra = len(items) - limit
+    if extra > 0:
+        rows.append(str(extra) + " more files")
+    return rows
+
+
+def format_update_log(installed, available, note, changes, files, changes_note):
+    lines = [
+        note,
+        "Installed: " + (installed or "not recorded"),
+        "Available: " + (available or "unknown"),
+    ]
+    if changes_note:
+        lines.append(changes_note)
+    if changes:
+        lines.append("")
+        for item in changes:
+            lines.append((item.get("rev") or "") + "  " + (item.get("subject") or ""))
+            body = (item.get("body") or "").strip()
+            if body:
+                lines.append(body)
+            lines.append("")
+    if files:
+        lines.append("Files:")
+        lines.extend(files)
+    return "\n".join(lines).strip() + "\n"
+
+
+def github_json(url):
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "nikon-d3400", "Accept": "application/vnd.github+json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as exc:
+        raise UpdateError("GitHub returned " + str(exc.code) + ".") from exc
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        raise UpdateError("Could not read the commit list from GitHub. " + str(exc)) from exc
+
+
+def lookup_changes(installed, remote):
+    """Commits and files on main that are not in the installed revision."""
+    owner, name = github_repo()
+    base = (installed or "").strip()
+    head = (remote or "").strip() or BRANCH
+    recent = "https://api.github.com/repos/" + owner + "/" + name + "/commits?sha=" + BRANCH + "&per_page=15"
+    if revisions_match(base, head):
+        return [], [], ""
+    if not base:
+        payload = github_json(recent)
+        return parse_commits(payload), [], "No installed revision is recorded. These are the latest commits on main."
+    try:
+        payload = github_json(
+            "https://api.github.com/repos/" + owner + "/" + name + "/compare/" + base + "..." + head
+        )
+    except UpdateError as exc:
+        if "GitHub returned 404" in str(exc):
+            payload = github_json(recent)
+            return parse_commits(payload), [], "GitHub did not find the installed revision. These are the latest commits on main."
+        raise
+    return parse_commits(payload), parse_files(payload), ""
+
+
 def check_update():
-    """Ask GitHub if main is newer than the revision installed on this Pi."""
+    """Ask GitHub if main is newer, and list the commits since this Pi."""
     check_route()
     ensure_git()
     proc = _run(["git", "ls-remote", REPO, "refs/heads/" + BRANCH], 60)
@@ -134,7 +245,18 @@ def check_update():
     installed = read_revision()
     available = remote[:7]
     behind = not revisions_match(installed, remote)
-    if behind:
+    changes, files, changes_note = [], [], ""
+    try:
+        changes, files, changes_note = lookup_changes(installed, remote)
+    except UpdateError as exc:
+        changes_note = str(exc)
+    if behind and changes:
+        word = "commit" if len(changes) == 1 else "commits"
+        note = (
+            str(len(changes)) + " new " + word + " on main (" + (available or "unknown")
+            + "). The list is below. Use Update from git to install."
+        )
+    elif behind:
         note = "An update is available (" + (available or "unknown") + "). Use Update from git to install it."
     else:
         note = "This Pi is already on " + (installed or available) + "."
@@ -144,6 +266,9 @@ def check_update():
         "update": behind,
         "repo": REPO,
         "note": note,
+        "changes": changes,
+        "files": files,
+        "log": format_update_log(installed, available, note, changes, files, changes_note),
     }
 
 

@@ -22,7 +22,9 @@
     color: var(--ink);
     font: 17px/1.45 "Iowan Old Style", Palatino, Georgia, serif;
   }
-  header, main { padding: 16px; max-width: 880px; margin: 0 auto; }
+  header, main, #update-log { padding: 16px; max-width: 880px; margin: 0 auto; }
+  #update-log { padding-top: 0; }
+  #update-state { white-space: pre-wrap; }
   header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   h1 { font-size: 28px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
   h2 { font-size: 22px; margin: 0 0 8px; }
@@ -85,6 +87,7 @@
   <button class="ghost" id="refresh" type="button">Refresh</button>
   <button class="ghost" id="update-check" type="button">Check for updates</button>
 </header>
+<pre id="update-log" hidden></pre>
 <main>
   <nav>
     <button type="button" data-tab="guide">Guide</button>
@@ -344,13 +347,22 @@ $("refresh").onclick = async () => {
 };
 async function checkUpdates() {
   $("status").textContent = "Checking git…";
+  const log = $("update-log");
+  if (log) {
+    log.hidden = false;
+    log.textContent = "Asking GitHub which commits are on main…";
+  }
+  if ($("update-state")) $("update-state").textContent = "Asking GitHub which commits are on main…";
   try {
     const data = await api("/api/update/check", {method: "POST", body: {}});
-    $("status").textContent = data.note || (data.update ? "An update is available." : "Already up to date.");
-    const line = $("update-state");
-    if (line) line.textContent = $("status").textContent;
+    const text = data.log || data.note || (data.update ? "An update is available." : "Already up to date.");
+    $("status").textContent = data.note || text;
+    if (log) log.textContent = text;
+    if ($("update-state")) $("update-state").textContent = text;
   } catch (err) {
     $("status").textContent = err.message;
+    if (log) log.textContent = err.message;
+    if ($("update-state")) $("update-state").textContent = err.message;
   }
 }
 $("update-check").onclick = checkUpdates;
