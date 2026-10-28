@@ -74,6 +74,19 @@ def parse_files(text):
     return files
 
 
+def thumb_cache_key(folder, name):
+    """Stable file name for one camera picture. The index changes when files are deleted."""
+    folder = (folder or "").replace("\\", "/").strip("/")
+    name = (name or "").replace("\\", "/").strip()
+    if not folder or not name or "/" in name or ".." in folder.split("/") or name in (".", ".."):
+        raise ValueError("Bad thumbnail name")
+    raw = folder + "/" + name
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._")
+    if not safe:
+        raise ValueError("Bad thumbnail name")
+    return safe + ".jpg"
+
+
 def jpeg_payload(blob):
     """Return the JPEG inside a gphoto2 stdout buffer, if one is there."""
     if not blob:

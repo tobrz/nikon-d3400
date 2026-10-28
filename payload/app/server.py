@@ -10,7 +10,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from camera import Camera, CameraError
+from camera import Camera, CameraError, jpeg_payload, thumb_cache_key
 import firmware
 import geo
 from guide import plan, rephrase
@@ -295,12 +295,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": "Bad index"})
             return
         name = (query.get("name") or [""])[0]
+        cached = ""
+        try:
+            cached = os.path.join(DATA, "thumbs", thumb_cache_key(folder, name))
+        except ValueError:
+            cached = ""
+        if cached and os.path.isfile(cached) and os.path.getsize(cached) > 0:
+            self._file(cached, "image/jpeg")
+            return
         dest = os.path.join(DATA, "thumb.jpg")
         try:
             frame = CAMERA.thumbnail(folder, index, dest, name=name)
         except CameraError as exc:
             self._send(502, {"error": str(exc)})
             return
+        if cached and jpeg_payload(frame):
+            os.makedirs(os.path.dirname(cached), exist_ok=True)
+            temporary = cached + ".part"
+            with open(temporary, "wb") as handle:
+                handle.write(frame)
+            os.replace(temporary, cached)
         self._send(200, frame, "image/jpeg")
 
     def _add_wifi(self, body):

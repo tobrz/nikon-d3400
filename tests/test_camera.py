@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "payload", "app"))
 
-from camera import adopt_preview, deletion_order, jpeg_payload, live_view_block_reason, parse_configs, parse_files, preview_download_path
+from camera import adopt_preview, deletion_order, jpeg_payload, live_view_block_reason, parse_configs, parse_files, preview_download_path, thumb_cache_key
 from guide import classify, plan
 
 
@@ -49,6 +49,16 @@ class ParseTests(unittest.TestCase):
         rows = parse_files(text)
         self.assertEqual(rows[0]["name"], "DSC_0001.JPG")
         self.assertEqual(rows[0]["index"], 1)
+
+    def test_thumb_cache_key_uses_the_folder_and_the_file_name(self):
+        self.assertEqual(
+            thumb_cache_key("/store_00010001/DCIM/100D3400", "APB_3930.JPG"),
+            "store_00010001_DCIM_100D3400_APB_3930.JPG.jpg",
+        )
+        with self.assertRaises(ValueError):
+            thumb_cache_key("/store/../etc", "x.jpg")
+        with self.assertRaises(ValueError):
+            thumb_cache_key("/store", "../x.jpg")
 
     def test_jpeg_payload_skips_text_before_the_image(self):
         self.assertEqual(jpeg_payload(b"Saving\n\xff\xd8jpeg"), b"\xff\xd8jpeg")
