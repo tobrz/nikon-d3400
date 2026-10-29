@@ -353,7 +353,10 @@
       <div class="au-big" id="au-chance">–</div>
       <div><div id="au-summary">Loading…</div><div class="muted" id="au-meta"></div></div>
     </div>
-    <div class="row"><button class="ghost" type="button" id="au-refresh">Check again</button></div>
+    <div class="row">
+      <button class="ghost" type="button" id="au-refresh">Check again</button>
+      <button class="ghost" type="button" id="au-locate">Use this device's location</button>
+    </div>
     <h2>Where it will be</h2>
     <p class="muted">NOAA's view from over the North Pole. Slide back through the last 24 hours.</p>
     <img id="au-map" class="au-map" alt="NOAA aurora forecast map">
@@ -387,7 +390,7 @@
     <label for="alt">Altitude in meters, optional</label>
     <input id="alt" inputmode="decimal" placeholder="266">
     <div class="row">
-      <button type="button" id="geo-phone">Use this phone's location</button>
+      <button type="button" id="geo-phone">Use this device's location</button>
       <button class="ghost" type="button" id="geo-save">Save location</button>
       <button class="ghost" type="button" id="geo-clock">Set the camera clock</button>
       <button class="ghost" type="button" id="geo-stamp">Write location into pictures on the Pi</button>
@@ -1062,19 +1065,46 @@ $("geo-save").onclick = async () => {
   try { $("geo-state").textContent = JSON.stringify(await api("/api/geo", {method: "POST", body: geoBody()})); }
   catch (err) { $("geo-state").textContent = err.message; }
 };
-$("geo-phone").onclick = async () => {
-  if (!navigator.geolocation) { $("geo-state").textContent = "This browser has no location. Type the latitude and longitude."; return; }
-  $("geo-state").textContent = "Asking this phone for its location.";
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    $("lat").value = pos.coords.latitude;
-    $("lon").value = pos.coords.longitude;
-    if (pos.coords.altitude != null) $("alt").value = pos.coords.altitude;
-    try { $("geo-state").textContent = JSON.stringify(await api("/api/geo", {method: "POST", body: geoBody()})); }
-    catch (err) { $("geo-state").textContent = err.message; }
-  }, (err) => {
-    $("geo-state").textContent = "The phone did not share a location (" + err.message + "). Type the latitude and longitude. iPhone Safari often blocks this on a plain http page.";
-  }, {enableHighAccuracy: true, timeout: 15000});
-};
+// Browsers only hand out a precise location on https pages, and this page is plain http on the Pi.
+// Then fall back to the internet address's city, which is close enough for the aurora and pictures.
+async function approximateLocation() {
+  for (const [url, pick] of [
+    ["https://ipwho.is/", (d) => d.success && [d.latitude, d.longitude, d.city]],
+    ["https://ipapi.co/json/", (d) => !d.error && [d.latitude, d.longitude, d.city]],
+  ]) {
+    try {
+      const got = pick(await (await fetch(url)).json());
+      if (got && got[0] != null) return got;
+    } catch (err) {}
+  }
+  return null;
+}
+async function saveFound(lat, lon, alt, how) {
+  $("lat").value = lat;
+  $("lon").value = lon;
+  if (alt != null) $("alt").value = alt;
+  try {
+    await api("/api/geo", {method: "POST", body: geoBody()});
+    $("geo-state").textContent = "Saved " + Number(lat).toFixed(4) + ", " + Number(lon).toFixed(4) + " " + how + ".";
+  } catch (err) { $("geo-state").textContent = err.message; }
+}
+async function useApproximate(why) {
+  $("geo-state").textContent = why + " Looking up the city from this device's internet address…";
+  const got = await approximateLocation();
+  if (got) await saveFound(got[0], got[1], null, "(near " + (got[2] || "this internet address") + ", from the internet address)");
+  else $("geo-state").textContent = why + " The internet lookup failed too. Type the latitude and longitude.";
+}
+function locateDevice() {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    return useApproximate("This browser won't share a precise location with a plain http page.");
+  }
+  $("geo-state").textContent = "Asking this device for its location.";
+  return new Promise((done) => navigator.geolocation.getCurrentPosition(
+    (pos) => saveFound(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude, "from this device").then(done),
+    (err) => useApproximate("The device did not share a location (" + err.message + ").").then(done),
+    {enableHighAccuracy: true, timeout: 15000}));
+}
+$("geo-phone").onclick = locateDevice;
 $("geo-clock").onclick = async () => {
   $("geo-state").textContent = "Setting the camera clock from the Pi.";
   try { $("geo-state").textContent = JSON.stringify(await api("/api/geo/clock", {method: "POST", body: {}})); }
@@ -1129,6 +1159,11 @@ function showAuroraFrame() {
 }
 $("au-slide").oninput = showAuroraFrame;
 $("au-refresh").onclick = loadAurora;
+$("au-locate").onclick = async () => {
+  await locateDevice();
+  $("au-summary").textContent = $("geo-state").textContent;
+  if ($("geo-state").textContent.startsWith("Saved")) loadAurora();
+};
 $("au-start").onclick = async () => {
   try {
     const body = {threshold: Number($("au-threshold").value), seconds: Number($("au-seconds").value), interval: Number($("au-interval").value), iso: $("au-iso").value};

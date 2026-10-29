@@ -156,7 +156,7 @@ class Jobs:
         exposure = optional_seconds(seconds)
         state = geo.load()
         if state.get("lat") is None or state.get("lon") is None:
-            raise CameraError("Save a location first (Place, or Use this phone's location in the app).")
+            raise CameraError("Save a location first (Place, or Use this device's location).")
         with self._lock:
             if self._busy():
                 raise CameraError("A run is already going.")

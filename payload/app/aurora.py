@@ -117,7 +117,7 @@ def sky(lat, lon, coordinates):
 def outlook(lat, lon, now=None):
     """Everything the app shows: chance, Kp, aim, darkness, and a sentence."""
     if lat is None or lon is None:
-        raise AuroraError("Save a location first (Place, or Use this phone's location in the app).")
+        raise AuroraError("Save a location first (Place, or Use this device's location).")
     data = _fetch(OVATION_URL, "ovation")
     result = sky(float(lat), float(lon), data.get("coordinates") or [])
     kp_now = None
