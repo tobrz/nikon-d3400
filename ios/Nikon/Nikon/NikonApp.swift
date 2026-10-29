@@ -85,7 +85,7 @@ struct CameraBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(pi.cameraName == nil ? .orange : .green).frame(width: 8, height: 8)
-            Text(pi.cameraName ?? "Camera not connected (turn it on, USB to the Pi)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(pi.cameraName ?? "Camera not connected (turn it on, USB to the Pi)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
         }
     }
 }

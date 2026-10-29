@@ -20,7 +20,6 @@ struct ShootView: View {
             }
             .padding()
             .navigationTitle("Shoot")
-            .toolbar { ToolbarItem(placement: .topBarLeading) { CameraBadge() } }
             .task { if pi.controls.isEmpty, pi.cameraName != nil { await pi.loadControls() } }
             .task(id: live) {
                 // Ask for frames back to back while live view is on.
@@ -51,6 +50,7 @@ struct ShootView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
+            CameraBadge()      // in the page, not the toolbar: a phone's top bar shrinks it to a dot
             Button {
                 let wasLive = live
                 live = false
