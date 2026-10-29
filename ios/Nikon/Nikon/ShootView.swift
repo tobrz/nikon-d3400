@@ -13,7 +13,8 @@ struct ShootView: View {
         NavigationStack {
             Group {
                 if width == .regular {
-                    HStack(alignment: .top, spacing: 16) { picture.frame(maxWidth: .infinity); controls.frame(width: 340) }
+                    // Scrolls too: a fixed layout taller than the screen got centered and cut off at the top.
+                    ScrollView { HStack(alignment: .top, spacing: 16) { picture.frame(maxWidth: .infinity); controls.frame(width: 340) } }
                 } else {
                     ScrollView { VStack(spacing: 14) { picture; controls } }
                 }
