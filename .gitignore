@@ -5,3 +5,6 @@ __pycache__/
 *.img.xz
 .venv/
 var/
+ios/Nikon/build/
+xcuserdata/
+*.xcuserstate
