@@ -92,6 +92,9 @@
   .step { border-top: 1px solid var(--line); padding: 10px 0; }
   .step strong { display: block; }
   .muted { color: var(--dim); }
+  .au-now { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
+  .au-big { font-size: 44px; font-weight: 700; color: var(--good); min-width: 96px; }
+  .au-map { width: 100%; max-width: 520px; display: block; border-radius: 12px; background: #000; margin: 8px 0; }
   .error { color: var(--bad); }
   .ok { color: var(--good); }
   #gate {
@@ -167,6 +170,7 @@
     <button class="ghost" type="button" data-tab="bracket">Bracket</button>
     <button class="ghost" type="button" data-tab="lightning">Lightning</button>
     <button class="ghost" type="button" data-tab="night">Night</button>
+    <button class="ghost" type="button" data-tab="aurora">Aurora</button>
     <button class="ghost" type="button" data-tab="shots">Shots</button>
     <button class="ghost" type="button" data-tab="place">Place</button>
     <button class="ghost" type="button" data-tab="wifi">Wi-Fi</button>
@@ -342,6 +346,36 @@
     </div>
   </section>
 
+  <section id="aurora" class="panel">
+    <h2>Northern lights</h2>
+    <p class="muted">NOAA's 30-90 minute aurora forecast for the location saved under Place.</p>
+    <div id="au-now" class="au-now">
+      <div class="au-big" id="au-chance">–</div>
+      <div><div id="au-summary">Loading…</div><div class="muted" id="au-meta"></div></div>
+    </div>
+    <div class="row"><button class="ghost" type="button" id="au-refresh">Check again</button></div>
+    <h2>Where it will be</h2>
+    <p class="muted">NOAA's view from over the North Pole. Slide back through the last 24 hours.</p>
+    <img id="au-map" class="au-map" alt="NOAA aurora forecast map">
+    <input id="au-slide" type="range" min="0" max="0" value="0">
+    <p class="muted" id="au-time"></p>
+    <h2>Watch all night</h2>
+    <p class="muted">Leave the camera on a tripod aimed the way shown above, in manual focus at infinity. The Pi checks the forecast every few minutes; when it is dark and the chance reaches the threshold, it keeps shooting until it fades or dawn comes.</p>
+    <label for="au-threshold">Start shooting at this chance (%)</label>
+    <input id="au-threshold" type="number" min="1" max="100" value="30">
+    <label for="au-seconds">Exposure in seconds</label>
+    <input id="au-seconds" type="number" min="1" value="8">
+    <label for="au-interval">Seconds between frames</label>
+    <input id="au-interval" type="number" min="1" value="20">
+    <label for="au-iso">ISO</label>
+    <input id="au-iso" value="1600">
+    <div class="row">
+      <button type="button" id="au-start">Start watching</button>
+      <button class="ghost" type="button" id="au-stop">Stop</button>
+    </div>
+    <p id="au-state" class="muted"></p>
+  </section>
+
   <section id="place" class="panel">
     <h2>Time and place</h2>
     <p class="muted">The D3400 has no GPS of its own. SnapBridge is what puts the phone's location in the file. Leave this off when SnapBridge is not connected. The Pi then sets the camera clock from its own clock, and writes the location below into pictures after they are copied here.</p>
@@ -474,6 +508,7 @@ document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => {
   if (btn.dataset.tab === "raw") loadRaw();
   if (btn.dataset.tab === "shots") loadShots();
   if (btn.dataset.tab === "place") loadGeo();
+  if (btn.dataset.tab === "aurora") loadAurora();
   if (btn.dataset.tab === "wifi") loadWifi();
 });
 
@@ -510,6 +545,10 @@ async function refresh() {
     const br = jobs.bracket || {};
     if ($("br-state")) $("br-state").textContent = br.note || br.error || "";
     $("ln-state").textContent = jobs.lightning ? JSON.stringify(jobs.lightning) : "";
+    const au = jobs.aurora || {};
+    if ($("au-state") && (au.running || au.note || au.error)) {
+      $("au-state").textContent = [au.running ? "Watching." : "", au.note, au.error, au.taken ? au.taken + " frames so far." : ""].filter(Boolean).join(" ");
+    }
     const off = jobs.offload || {};
     const offLine = $("offload-state");
     if (offLine && (off.running || off.note || off.error)) {
@@ -527,6 +566,7 @@ $("refresh").onclick = async () => {
   if (panel.id === "controls") await loadControls();
   else if (panel.id === "raw") await loadRaw();
   else if (panel.id === "place") await loadGeo();
+  else if (panel.id === "aurora") await loadAurora();
   else if (panel.id === "shots") await loadShots();
   else if (panel.id === "wifi") await loadWifi();
 };
@@ -1060,6 +1100,45 @@ $("offload").onclick = async () => {
     $("offload-state").textContent = err.message;
   }
   $("offload").disabled = false;
+};
+let auFrames = [];
+async function loadAurora() {
+  $("au-summary").textContent = "Asking NOAA…";
+  try {
+    const r = await api("/api/aurora");
+    $("au-chance").textContent = r.visible + "%";
+    $("au-chance").style.color = r.visible >= 30 ? "var(--good)" : (r.visible >= 10 ? "var(--amber)" : "var(--dim)");
+    $("au-summary").textContent = r.summary;
+    $("au-meta").textContent = [r.kp != null ? "Kp " + Number(r.kp).toFixed(1) : "", r.dark ? "Dark" : "Sun at " + r.sun_altitude + "°",
+      r.forecast_time ? "Forecast for " + new Date(r.forecast_time).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) : ""].filter(Boolean).join(" · ");
+  } catch (err) { $("au-chance").textContent = "–"; $("au-summary").textContent = err.message; }
+  // The map comes straight from NOAA to this browser, so it needs the phone online, not just the Pi.
+  try {
+    const res = await fetch("https://services.swpc.noaa.gov/products/animations/ovation_north_24h.json");
+    auFrames = (await res.json()).slice(-144);
+    $("au-slide").max = auFrames.length - 1;
+    $("au-slide").value = auFrames.length - 1;
+    showAuroraFrame();
+  } catch (err) { $("au-time").textContent = "The map needs this device on the internet."; }
+}
+function showAuroraFrame() {
+  const f = auFrames[Number($("au-slide").value)];
+  if (!f) return;
+  $("au-map").src = "https://services.swpc.noaa.gov" + f.url;
+  $("au-time").textContent = new Date(f.time_tag).toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"});
+}
+$("au-slide").oninput = showAuroraFrame;
+$("au-refresh").onclick = loadAurora;
+$("au-start").onclick = async () => {
+  try {
+    const body = {threshold: Number($("au-threshold").value), seconds: Number($("au-seconds").value), interval: Number($("au-interval").value), iso: $("au-iso").value};
+    const data = await api("/api/aurora/start", {method: "POST", body});
+    $("au-state").textContent = (data.aurora && data.aurora.note) || "Watching.";
+  } catch (err) { $("au-state").textContent = err.message; }
+};
+$("au-stop").onclick = async () => {
+  try { const data = await api("/api/aurora/stop", {method: "POST", body: {}}); $("au-state").textContent = (data.aurora && data.aurora.note) || "Stopped."; }
+  catch (err) { $("au-state").textContent = err.message; }
 };
 async function loadCameraPictures() {
   closeViewerIfInside($("card-out"));
