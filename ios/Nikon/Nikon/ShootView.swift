@@ -35,7 +35,8 @@ struct ShootView: View {
 
     private var picture: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16).fill(.black)
+            RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.08))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(white: 0.25), lineWidth: 1))
             if let frame { Image(uiImage: frame).resizable().scaledToFit().clipShape(.rect(cornerRadius: 16)) }
             else { Text(pi.cameraName == nil ? "Camera not connected" : "Live view is off").foregroundStyle(.secondary) }
             if let b = pi.busy { VStack { Spacer(); Text(b).font(.footnote.bold()).padding(8).background(.ultraThinMaterial, in: .capsule).padding() } }
