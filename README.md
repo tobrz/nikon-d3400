@@ -173,6 +173,10 @@ While a picture is in progress, the page does not start a second camera command.
 
 ### Timelapse
 
+**Follow the light** (`auto`): the Pi picks shutter and ISO from each frame's brightness for sunset-into-night runs,
+the shutter stretching to just under the interval (30 s at most) before the ISO climbs. Mode dial on M. Movies are
+deflickered (ffmpeg's `deflicker`), which also smooths auto-exposure steps.
+
 Tripod interval shooting. The D3400 has no interval timer of its own. **Seconds to leave the shutter open** can be blank, which means the speed already on the camera. The gap is the time after the shutter closes, before the next frame, and it can be as short as 1 second. A count of 0 runs until **Stop**. Stop finishes the exposure that is already open, then ends the run. Each frame is downloaded to the Pi. Two or more JPEG frames are compiled with ffmpeg into an mp4 at the playback rate you set, usually 24 frames a second. The movie is named `timelapse-<time>.mp4` in the shots folder. One run at a time: timelapse, bracket, and lightning share the camera.
 
 ### Bracket
@@ -199,14 +203,56 @@ The D3400 has no GPS receiver. SnapBridge is what copies a phone's location into
 
 NOAA's OVATION aurora model (30-90 minute forecast, 1° grid) and the 1-minute Kp index, for the location saved on the
 Place tab. `GET /api/aurora` returns the chance the aurora is in view (the strongest glow within ~1,000 km, weighted
-toward nearer), where to aim (compass bearing and height), Kp, and whether the sun is far enough down (−12°).
-`POST /api/aurora/start` with `threshold`, `interval`, `seconds`, `iso`, optional `aperture`, `check_minutes` (5) and
-`hours` (12) runs an all-night watch: every check it updates the outlook; while it's dark and the chance is at or over
-the threshold it sets the ISO (and aperture) once and shoots `aurora-<run>-NNNN` frames, tagged with the saved
-location, until the next check; it stops at dawn, at the end of `hours`, or on `POST /api/aurora/stop`. The Pi needs
-internet (house Wi-Fi or Starlink) for the forecast. The iPhone app's Aurora tab drives this, and can line the camera
-up with the phone lying on top of it (compass for the pan, motion sensor for the tilt). The web page has an Aurora tab
-too; it can't use the browser's precise location over plain http, so it falls back to the internet address's city.
+toward nearer), where to aim (compass bearing and height), Kp, whether the sun is far enough down (−12°), the cloud
+cover right now (Open-Meteo, free, no key) and the moon. The Pi needs internet (house Wi-Fi or Starlink).
+
+**Next three nights** (`GET /api/aurora/plan`, `sky.py`): for each dark hour, the chance from NOAA's 3-day Kp forecast
+(compared with the Kp this place usually needs, from its magnetic latitude), times how clear it is, times a moonlight
+penalty, rolled into Good / Maybe / Poor per night with its best hour.
+
+**The all-night watch** (`POST /api/aurora/start`; `threshold`, `seconds`, `interval`, `iso`, `max_cloud` (80),
+`auto_exposure`, `detect`, optional `aperture`, `check_minutes` (5), `hours` (12)):
+
+- Every check it reads the forecast and the clouds. It shoots while it's dark, the chance is at or over the threshold,
+  and the cloud is under `max_cloud`.
+- `detect`: the Pi looks at every frame for aurora green (`imaging.py`). When the forecast says no it still takes one
+  test frame per check (deleted unless it shows aurora), and it keeps shooting for 15 minutes after any frame that
+  shows green, whatever the forecast says. Scores are kept per picture; the app marks them and can show only those.
+- `auto_exposure`: shutter (up to `seconds`) and ISO (up to 6400) follow each frame's brightness, a third of a stop at
+  a time (a full stop when far off), the rpi-timelapse ladder approach. Mode dial on M.
+- At the end: a deflickered movie of the night (10+ frames) and the five best frames by aurora score.
+- Stops at dawn, at the end of `hours`, or on `POST /api/aurora/stop`.
+
+**Phone alerts** (`notify.py`) go through [ntfy](https://ntfy.sh): free, no account, an app for iPhone and Android.
+Each Pi makes up its own random topic; subscribe to it in the ntfy app (the page and the iPhone app show it). Alerts:
+shooting started, aurora showing in the frames (with a small picture), the watch stopped on an error, the night's
+summary. Turn them on and test them on the Aurora tab. Anyone who knows the topic can read the alerts; **New topic**
+makes another. A self-hosted ntfy server can be set through `POST /api/notify` (`server`).
+
+The iPhone app's Aurora tab drives all of this, and can line the camera up with the phone lying on top of it (compass
+for the pan, motion sensor for the tilt). The web page has an Aurora tab too; it can't use the browser's precise
+location over plain http, so it falls back to the internet address's city.
+
+### Star focus
+
+On the Live view tab (and Shoot in the app): **Measure** takes a live-view frame and measures the brightest star's
+half-flux diameter, the number astrophotographers focus by: the smaller, the sharper. Step Near/Far (lens on M),
+measure again, stop at the smallest. The page and app show the star zoomed in, the best size so far and a histogram.
+`POST /api/focus/assist`; the frame it measured is at `/api/focus/frame`.
+
+### Copy as I shoot
+
+Shots tab (Programs in the app): while it runs, pictures taken with the camera's own shutter button copy onto the Pi a
+moment later and stay on the card (`gphoto2 --wait-event-and-download --keep` in 15-second turns, so live view still
+gets the camera in between, plus a card sweep every couple of minutes for anything missed).
+`POST /api/tether/start`, `/api/tether/stop`.
+
+### Long runs and a wedged USB link
+
+Nikons are known to stop answering over USB on long tethered runs ("I/O problem", "Could not claim the USB device",
+timeouts). When that happens the Pi resets the camera's USB port, the same as pulling and replugging the cable, and
+tries the command once more, so an all-night watch or timelapse keeps going. The count and the last one show in the
+job status (`usb_resets`, `last_usb_reset`). Bulb exposures are never retried.
 
 ### Shots
 

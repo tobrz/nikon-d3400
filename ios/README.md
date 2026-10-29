@@ -15,9 +15,14 @@ Network access. No Pi changes were needed.
   still has the factory password and connects by itself.
 - **Shoot:** live view (frames from `/preview.jpg` back to back while on), Take picture (optional exposure seconds; long
   exposures and Bulb are handled by the Pi), the result replaces live view, quick pickers for mode, ISO, shutter,
-  aperture, exposure compensation, white balance and focus mode, and focus steps / AF. On an open Duo the picture and the
+  aperture, exposure compensation, white balance and focus mode, focus steps / AF, and **Star focus** (`StarFocusView`):
+  the Pi measures the brightest star's size in a live-view frame; the app shows it zoomed in, the size history and
+  the best so far, and a histogram. On an open Duo the picture and the
   controls sit side by side; the tabs are the right-hand icon column.
-- **Shots:** pictures on the Pi, JPEG + NEF as one (RAW badge). The viewer is full screen: swipe left/right through the set, EXIF under each picture (taken, camera, lens, focal length, aperture, shutter, ISO, comp., mode, metering, WB, flash, size, location), Save to Photos, Share, Delete.
+- **Shots:** a yellow reminder for pictures that aren't in this phone's Photos library yet, with **Save all to Photos**
+  (optionally the NEF too, saved as the RAW half of a RAW+JPEG pair; movies as videos), a badge with that count on
+  the Shots tab and a yellow dot on each one. What's been saved is remembered per Pi on the phone. Aurora frames get a
+  green badge and an "Aurora only" filter. Pictures on the Pi, JPEG + NEF as one (RAW badge). The viewer is full screen: swipe left/right through the set, EXIF under each picture (taken, camera, lens, focal length, aperture, shutter, ISO, comp., mode, metering, WB, flash, size, location), Save to Photos, Share, Delete.
 - **Aurora:** the Pi's outlook for its saved place (`GET /api/aurora`, `payload/app/aurora.py`): chance in view,
   Kp, dark or not, and a compass arrow with the bearing and height to aim at; **Use this phone's location** saves the
   phone's position on the Pi (also used to tag pictures). The compass follows the phone's heading ("Turn left 20°",
@@ -25,9 +30,12 @@ Network access. No Pi changes were needed.
   the lens; the compass gives the tripod pan and the motion sensor the lens tilt (the glow's height, kept 10-45° up),
   each turning green within 8° / 3°. NOAA's northern-hemisphere OVATION map with a 12-hour time
   slider (the newest frame is the forecast) and the 3-day Kp forecast, both read straight from NOAA by the phone.
-  **Watch tonight** starts the Pi's all-night aurora watch (threshold, exposure, interval, ISO): it checks NOAA every
-  5 minutes, shoots only when it's dark and the chance in view is over the threshold, and stops at dawn.
-- **Programs:** timelapse, bracket, lightning, card offload, with live progress (status polls every 5 s).
+  Clouds and moon right now; **Next three nights** (verdict, best hour, Kp, cloud, moon; tap for the hours).
+  **Watch tonight** starts the Pi's all-night aurora watch (threshold, max cloud, exposure, interval, ISO, follow the
+  light, look for it in the pictures): it checks NOAA and the clouds every 5 minutes, shoots when it's dark and likely
+  or when the frames show green, and stops at dawn. **Alerts**: the Pi's ntfy topic, on/off, pictures, test, new topic.
+- **Programs:** timelapse (with Follow the light), Copy as I shoot, bracket, lightning, card offload, with live progress
+  (status polls every 5 s), and a note when the Pi has had to reset the camera's USB link.
 - **Camera:** status, every setting the body reports (filterable, editable), the Pi's web page for Wi-Fi, Place, Guide
   and updates, Disconnect.
 

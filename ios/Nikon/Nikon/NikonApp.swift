@@ -23,21 +23,30 @@ struct RootView: View {
         .task {
             await pi.resume()
             resuming = false
-            // Keep status (camera present, jobs) fresh while the app is open.
+            // Keep status (camera present, jobs) fresh while the app is open; the picture list (for the Shots badge)
+            // every minute.
+            var ticks = 0
+            if pi.connected { await pi.loadShots() }
             while true {
                 try? await Task.sleep(for: .seconds(5))
-                if pi.connected && pi.busy == nil { await pi.refreshStatus() }
+                ticks += 1
+                if pi.connected && pi.busy == nil {
+                    await pi.refreshStatus()
+                    if ticks % 12 == 0 { await pi.loadShots() }
+                }
             }
         }
     }
 }
 
 struct MainTabs: View {
+    @Environment(Pi.self) private var pi
     var body: some View {
         // On the open Duo these become the column of icons on the right, as in Money.
         TabView {
             Tab("Shoot", systemImage: "camera.aperture") { ShootView() }
-            Tab("Shots", systemImage: "photo.on.rectangle") { ShotsView() }
+            // The badge is the reminder that pictures are only on the Pi until they're saved to Photos.
+            Tab("Shots", systemImage: "photo.on.rectangle") { ShotsView() }.badge(pi.notInPhotos.count)
             Tab("Aurora", systemImage: "sparkles") { AuroraView() }
             Tab("Programs", systemImage: "timer") { ProgramsView() }
             Tab("Camera", systemImage: "slider.horizontal.3") { CameraView() }

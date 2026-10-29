@@ -22,19 +22,28 @@ struct Shot: Codable, Identifiable, Hashable {
     let name: String
     var size: Int?
     var mtime: Double?
+    /// Percent of the sky glowing aurora green, measured by the Pi (aurora watch frames).
+    var aurora: Double?
+    var mean: Double?
 }
 
 struct Jobs: Codable {
     struct Run: Codable { var running: Bool?; var taken: Int?; var count: Int?; var error: String?; var note: String?; var movie: String?
         var triggers: Int?; var downloaded: Int?; var total: Int?; var copied: Int?; var deleted: Int?; var kept: Int?
         // aurora watch
-        var checks: Int?; var visible: Int?; var threshold: Int?; var shooting: Bool?; var direction: String?; var last_check: String? }
+        var checks: Int?; var visible: Int?; var threshold: Int?; var shooting: Bool?; var direction: String?; var last_check: String?
+        var detected: Int?; var cloud: Int?; var exposure: String?; var last_seen: String?; var best: [String]?; var tests: Int?
+        // tethered copying
+        var saved: Int?; var last: String? }
     var timelapse: Run?
     var bracket: Run?
     var lightning: Run?
     var offload: Run?
     var aurora: Run?
-    var anyRunning: Bool { [timelapse, bracket, lightning, offload, aurora].contains { $0?.running == true } }
+    var tether: Run?
+    var usb_resets: Int?
+    var last_usb_reset: String?
+    var anyRunning: Bool { [timelapse, bracket, lightning, offload, aurora, tether].contains { $0?.running == true } }
 }
 
 struct PiStatus: Codable {
@@ -61,6 +70,57 @@ struct AuroraOutlook: Codable {
     var lat: Double?
     var lon: Double?
     var summary: String?
+    var clouds: Clouds?
+    var moon: Moon?
+    var kp_needed: Double?
+    struct Clouds: Codable { var total: Int?; var low: Int?; var mid: Int?; var high: Int? }
+    struct Moon: Codable { var altitude: Double; var illumination: Double }
+}
+
+/// GET /api/aurora/plan (payload/app/sky.py): the next three nights.
+struct AuroraPlan: Codable {
+    var kp_needed: Double
+    var nights: [Night]
+    var note: String?
+    struct Night: Codable, Identifiable {
+        var id: String { date }
+        var date: String
+        var dark_start: String?
+        var dark_end: String?
+        var kp_max: Double?
+        var cloud_mean: Int?
+        var moon: Double
+        var best: Hour?
+        var score: Int
+        var verdict: String
+        var hours: [Hour]
+    }
+    struct Hour: Codable, Identifiable {
+        var id: String { time }
+        var time: String
+        var kp: Double?
+        var chance: Int
+        var cloud: Int?
+        var moon_altitude: Double
+        var moon: Double
+        var score: Int
+    }
+}
+
+/// GET/POST /api/notify (payload/app/notify.py).
+struct NotifySettings: Codable { var enabled: Bool; var server: String; var topic: String; var pictures: Bool; var url: String }
+
+/// POST /api/focus/assist (payload/app/imaging.py focus_metrics).
+struct FocusMetrics: Codable {
+    var hfd: Double?
+    var peak: Int
+    var saturated: Bool
+    var x: Double
+    var y: Double
+    var contrast: Double
+    var background: Int
+    var histogram: [Double]
+    var star: Bool
 }
 
 struct CaptureResult: Codable { var files: [String]?; var shutter: String?; var output: String? }
@@ -82,7 +142,31 @@ final class Pi {
     var shots: [Shot] = []
     var lastError: String?
     var busy: String?
+    /// Picture stems (name without extension) already saved to this phone's Photos library, per Pi.
+    var inPhotos: Set<String> = []
     private var password: String = Secrets.read() ?? ""
+
+    init() { inPhotos = Set(UserDefaults.standard.stringArray(forKey: photosKey) ?? []) }
+
+    private var photosKey: String { "inPhotos-" + host }
+
+    /// Stems on the Pi that aren't in Photos yet (pictures and movies, newest first).
+    var notInPhotos: [String] {
+        var seen = Set<String>(), out: [String] = []
+        for s in shots {
+            let stem = (s.name as NSString).deletingPathExtension
+            if !inPhotos.contains(stem), seen.insert(stem).inserted { out.append(stem) }
+        }
+        return out
+    }
+
+    func markInPhotos(_ stems: [String]) {
+        inPhotos.formUnion(stems)
+        // Forget stems that are gone from the Pi so the list doesn't grow forever.
+        let onPi = Set(shots.map { ($0.name as NSString).deletingPathExtension })
+        if !onPi.isEmpty { inPhotos.formIntersection(onPi) }
+        UserDefaults.standard.set(Array(inPhotos), forKey: photosKey)
+    }
 
     var base: URL { URL(string: "http://\(host.trimmingCharacters(in: .whitespaces))")! }
     var cameraName: String? { status?.camera }
@@ -212,6 +296,18 @@ final class Pi {
     }
 
     func aurora() async throws -> AuroraOutlook { try await get("api/aurora") }
+    func auroraPlan() async throws -> AuroraPlan { try await get("api/aurora/plan") }
+
+    func notifySettings() async throws -> NotifySettings { try await get("api/notify") }
+    func saveNotify(_ fields: [String: Any]) async throws -> NotifySettings { try await send("POST", "api/notify", fields) }
+    func testNotify() async throws { struct R: Codable {}; let _: R = try await send("POST", "api/notify/test", [:]) }
+
+    /// One live-view frame measured for star focus, and that frame for the zoom.
+    func focusAssist() async throws -> (FocusMetrics, UIImage?) {
+        let m: FocusMetrics = try await send("POST", "api/focus/assist", [:], timeout: 30)
+        let frame = try? await raw(URLRequest(url: base.appending(path: "api/focus/frame")), timeout: 10)
+        return (m, frame.flatMap(UIImage.init(data:)))
+    }
 
     func saveLocation(lat: Double, lon: Double, alt: Double?) async {
         var b: [String: Any] = ["lat": lat, "lon": lon]

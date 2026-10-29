@@ -94,6 +94,13 @@
   .muted { color: var(--dim); }
   .au-now { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
   .au-big { font-size: 44px; font-weight: 700; color: var(--good); min-width: 96px; }
+  .fa { display: flex; gap: 16px; align-items: flex-start; margin-top: 12px; }
+  .fa canvas { background: #000; border-radius: 8px; }
+  .fa-big { font-size: 36px; font-weight: 700; color: var(--good); }
+  .aurora-badge { color: var(--good); font-weight: 600; }
+  .plan { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  .plan td, .plan th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .v-Good { color: var(--good); font-weight: 700; } .v-Maybe { color: var(--amber); font-weight: 700; } .v-Poor { color: var(--dim); }
   .au-map { width: 100%; max-width: 520px; display: block; border-radius: 12px; background: #000; margin: 8px 0; }
   .error { color: var(--bad); }
   .ok { color: var(--good); }
@@ -222,6 +229,21 @@
         <button class="ghost" type="button" data-focus="far3">Far 3</button>
       </div>
       <p id="focus-state" class="muted"></p>
+      <h2>Star focus</h2>
+      <p class="muted">Point at a bright star, lens on M. Measure reads a live-view frame and finds the brightest point: the smaller the star size, the sharper. Step Near or Far and measure again; go back to the smallest.</p>
+      <div class="row">
+        <button type="button" id="fa-go">Measure</button>
+        <button class="ghost" type="button" id="fa-auto">Keep measuring</button>
+      </div>
+      <div class="fa">
+        <canvas id="fa-zoom" width="160" height="160"></canvas>
+        <div>
+          <div class="fa-big" id="fa-hfd">–</div>
+          <div class="muted" id="fa-meta"></div>
+          <div class="muted" id="fa-best"></div>
+          <canvas id="fa-hist" width="160" height="50"></canvas>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -283,6 +305,7 @@
     <input id="interval" type="number" min="1" value="10">
     <label for="count">How many frames (0 keeps going until you stop)</label>
     <input id="count" type="number" min="0" value="0">
+    <label><input id="tl-auto" type="checkbox"> Follow the light (day to night): the Pi picks shutter and ISO from each frame's brightness. Mode dial on M.</label>
     <label for="tl-fps">Movie playback, frames per second</label>
     <input id="tl-fps" type="number" min="1" max="60" value="24">
     <div class="row">
@@ -353,10 +376,14 @@
       <div class="au-big" id="au-chance">–</div>
       <div><div id="au-summary">Loading…</div><div class="muted" id="au-meta"></div></div>
     </div>
+    <div class="muted" id="au-sky"></div>
     <div class="row">
       <button class="ghost" type="button" id="au-refresh">Check again</button>
       <button class="ghost" type="button" id="au-locate">Use this device's location</button>
     </div>
+    <h2>Next three nights</h2>
+    <p class="muted" id="au-plan-note">Kp from NOAA, clouds from Open-Meteo, moon worked out here.</p>
+    <div id="au-plan"></div>
     <h2>Where it will be</h2>
     <p class="muted">NOAA's view from over the North Pole. Slide back through the last 24 hours.</p>
     <img id="au-map" class="au-map" alt="NOAA aurora forecast map">
@@ -372,11 +399,25 @@
     <input id="au-interval" type="number" min="1" value="20">
     <label for="au-iso">ISO</label>
     <input id="au-iso" value="1600">
+    <label for="au-cloud">Don't shoot for the forecast above this much cloud (%; 100 ignores clouds)</label>
+    <input id="au-cloud" type="number" min="0" max="100" value="80">
+    <label><input id="au-autoexp" type="checkbox" checked> Follow the light: adjust shutter (up to the time above) and ISO from each frame</label>
+    <label><input id="au-detect" type="checkbox" checked> Look for it in the pictures: a test frame each check even when the forecast says no, and keep shooting while the frames show green</label>
     <div class="row">
       <button type="button" id="au-start">Start watching</button>
       <button class="ghost" type="button" id="au-stop">Stop</button>
     </div>
     <p id="au-state" class="muted"></p>
+    <h2>Phone alerts</h2>
+    <p class="muted">Free with the <strong>ntfy</strong> app (App Store / Google Play): add a subscription to the topic below. The Pi sends one when shooting starts, when the frames show aurora (with a small picture), and when the night ends. The topic is random to this Pi; anyone who knows it can read the alerts.</p>
+    <label><input id="nt-on" type="checkbox"> Send alerts</label>
+    <label><input id="nt-pics" type="checkbox" checked> Include a small picture</label>
+    <p>Topic: <strong id="nt-topic">…</strong> · <a id="nt-link" target="_blank" rel="noopener">open in a browser</a></p>
+    <div class="row">
+      <button class="ghost" type="button" id="nt-test">Send a test alert</button>
+      <button class="ghost" type="button" id="nt-new">New topic</button>
+    </div>
+    <p id="nt-state" class="muted"></p>
   </section>
 
   <section id="place" class="panel">
@@ -384,11 +425,11 @@
     <p class="muted">The D3400 has no GPS of its own. SnapBridge is what puts the phone's location in the file. Leave this off when SnapBridge is not connected. The Pi then sets the camera clock from its own clock, and writes the location below into pictures after they are copied here.</p>
     <label><input id="snapbridge" type="checkbox"> SnapBridge is connected. Leave the clock and location alone.</label>
     <label for="lat">Latitude</label>
-    <input id="lat" inputmode="decimal" placeholder="43.0731">
+    <input id="lat" inputmode="decimal" placeholder="64.8378">
     <label for="lon">Longitude</label>
-    <input id="lon" inputmode="decimal" placeholder="-89.4012">
+    <input id="lon" inputmode="decimal" placeholder="-147.7164">
     <label for="alt">Altitude in meters, optional</label>
-    <input id="alt" inputmode="decimal" placeholder="266">
+    <input id="alt" inputmode="decimal" placeholder="136">
     <div class="row">
       <button type="button" id="geo-phone">Use this device's location</button>
       <button class="ghost" type="button" id="geo-save">Save location</button>
@@ -409,6 +450,13 @@
       <button class="ghost" type="button" id="shots-delete-all">Delete all on the Pi</button>
     </div>
     <p id="offload-state" class="muted"></p>
+    <h2>Copy as I shoot</h2>
+    <p class="muted">Shoot with the camera's own shutter button; each picture copies onto the Pi a moment later and stays on the card too.</p>
+    <div class="row">
+      <button type="button" id="tether-start">Start copying</button>
+      <button class="ghost" type="button" id="tether-stop">Stop</button>
+    </div>
+    <p id="tether-state" class="muted"></p>
     <p id="shots-download-state" class="muted"></p>
     <p id="shots-delete-state" class="muted"></p>
     <h2>Latest on the Pi</h2>
@@ -511,7 +559,7 @@ document.querySelectorAll("nav button").forEach((btn) => btn.onclick = () => {
   if (btn.dataset.tab === "raw") loadRaw();
   if (btn.dataset.tab === "shots") loadShots();
   if (btn.dataset.tab === "place") loadGeo();
-  if (btn.dataset.tab === "aurora") loadAurora();
+  if (btn.dataset.tab === "aurora") { loadAurora(); loadPlan(); loadNotify(); }
   if (btn.dataset.tab === "wifi") loadWifi();
 });
 
@@ -550,8 +598,15 @@ async function refresh() {
     $("ln-state").textContent = jobs.lightning ? JSON.stringify(jobs.lightning) : "";
     const au = jobs.aurora || {};
     if ($("au-state") && (au.running || au.note || au.error)) {
-      $("au-state").textContent = [au.running ? "Watching." : "", au.note, au.error, au.taken ? au.taken + " frames so far." : ""].filter(Boolean).join(" ");
+      $("au-state").textContent = [au.running ? "Watching." : "", au.note, au.error,
+        au.taken ? au.taken + " frames, " + (au.detected || 0) + " showed aurora." : "",
+        au.exposure ? "Exposure " + au.exposure + "." : "", au.cloud != null ? au.cloud + "% cloud." : "",
+        au.movie ? "Movie: " + au.movie + " (Shots)." : ""].filter(Boolean).join(" ");
     }
+    const te = jobs.tether || {};
+    if ($("tether-state")) $("tether-state").textContent = te.running
+      ? (te.note || "") + " " + (te.saved || 0) + " copied" + (te.last ? ", last " + te.last : "") + "." + (te.error ? " " + te.error : "")
+      : (te.note || "");
     const off = jobs.offload || {};
     const offLine = $("offload-state");
     if (offLine && (off.running || off.note || off.error)) {
@@ -733,6 +788,53 @@ async function liveTick() {
   }
   if (liveOn) setTimeout(liveTick, 700);
 }
+let faBest = null;
+let faAuto = false;
+async function focusAssist() {
+  stopLive();
+  try {
+    drawFocus(await api("/api/focus/assist", {method: "POST", body: {}}));
+  } catch (err) { $("fa-meta").textContent = err.message; faAuto = false; }
+  if (faAuto) setTimeout(focusAssist, 300);
+}
+async function drawFocus(m) {
+  if (!m.star || m.hfd == null) {
+    $("fa-hfd").textContent = "–";
+    $("fa-meta").textContent = "No star stands out. Aim at the brightest star you can see.";
+  } else {
+    $("fa-hfd").textContent = m.hfd.toFixed(1) + " px";
+    if (faBest == null || m.hfd < faBest) faBest = m.hfd;
+    $("fa-meta").textContent = "Star size (smaller is sharper). Peak " + m.peak + (m.saturated ? ", saturated: lower ISO or shorter exposure for a truer reading" : "") + ".";
+    $("fa-best").textContent = "Best so far " + faBest.toFixed(1) + " px" + (m.hfd <= faBest * 1.05 ? " - this is it." : ".");
+  }
+  // Zoom on the star from the frame the Pi just measured.
+  try {
+    const url = await authedImage("/api/focus/frame?t=" + Date.now());
+    const img = new Image();
+    img.onload = () => {
+      const z = $("fa-zoom").getContext("2d");
+      const cx = m.x * img.naturalWidth, cy = m.y * img.naturalHeight, half = 20;
+      z.imageSmoothingEnabled = false;
+      z.drawImage(img, cx - half, cy - half, half * 2, half * 2, 0, 0, 160, 160);
+    };
+    img.src = url;
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (err) {}
+  const h = $("fa-hist").getContext("2d");
+  h.clearRect(0, 0, 160, 50);
+  h.fillStyle = "#e6a23c";
+  (m.histogram || []).forEach((v, i) => h.fillRect(i * 5, 50 - v * 50, 4, v * 50));
+}
+$("fa-go").onclick = () => { faAuto = false; focusAssist(); };
+$("fa-auto").onclick = () => { faAuto = !faAuto; $("fa-auto").textContent = faAuto ? "Stop measuring" : "Keep measuring"; if (faAuto) focusAssist(); };
+$("tether-start").onclick = async () => {
+  try { await api("/api/tether/start", {method: "POST", body: {}}); refresh(); }
+  catch (err) { $("tether-state").textContent = err.message; }
+};
+$("tether-stop").onclick = async () => {
+  try { await api("/api/tether/stop", {method: "POST", body: {}}); refresh(); }
+  catch (err) { $("tether-state").textContent = err.message; }
+};
 $("live-start").onclick = () => { liveOn = true; $("live-state").textContent = "Asking the camera for a frame…"; liveTick(); };
 $("live-stop").onclick = stopLive;
 async function setMovie(recording) {
@@ -823,7 +925,8 @@ $("tl-start").onclick = async () => {
     fps: Number($("tl-fps").value || 24),
   };
   if (raw) body.seconds = Number(raw);
-  $("tl-state").textContent = raw
+  body.auto = $("tl-auto").checked;
+  $("tl-state").textContent = body.auto ? "Starting. The exposure follows the light." : raw
     ? "Starting. Each frame holds the shutter for " + raw + " seconds."
     : "Starting. Each frame uses the shutter already on the camera, and waits until it closes.";
   try { await api("/api/timelapse/start", {method: "POST", body}); refresh(); }
@@ -999,7 +1102,9 @@ async function loadShots() {
     const image = group.image ? `<img alt="${group.key}" data-pi="${group.image}"${raw ? ' data-raw="1"' : ""}>` : "";
     const buttons = group.files.map((shot) => `<button type="button" data-save="${shot.name}">${shot.name.split(".").pop().toUpperCase()}</button>`).join("");
     const names = encodeURIComponent(group.files.map((shot) => shot.name).join("\n"));
-    return `<figure class="shot">${image}<figcaption class="muted">${group.key}</figcaption>${buttons}<button class="ghost" type="button" data-delete="${names}">Delete</button></figure>`;
+    const glow = Math.max(0, ...group.files.map((shot) => shot.aurora || 0));
+    const badge = glow >= 2 ? ` <span class="aurora-badge">aurora ${glow}%</span>` : "";
+    return `<figure class="shot">${image}<figcaption class="muted">${group.key}${badge}</figcaption>${buttons}<button class="ghost" type="button" data-delete="${names}">Delete</button></figure>`;
   }).join("")}</div>` : "<p class='muted'>No frames on the Pi yet.</p>";
   $("shots-out").querySelectorAll("[data-save]").forEach((btn) => { btn.onclick = () => saveToPhone(btn.dataset.save); });
   $("shots-out").querySelectorAll("[data-delete]").forEach((btn) => { btn.onclick = () => deletePiShots(decodeURIComponent(btn.dataset.delete).split("\n")); });
@@ -1139,6 +1244,9 @@ async function loadAurora() {
     $("au-chance").textContent = r.visible + "%";
     $("au-chance").style.color = r.visible >= 30 ? "var(--good)" : (r.visible >= 10 ? "var(--amber)" : "var(--dim)");
     $("au-summary").textContent = r.summary;
+    const c = r.clouds || {};
+    $("au-sky").textContent = [c.total != null ? "Cloud " + c.total + "% now (low " + c.low + "%, high " + c.high + "%)" : "",
+      r.moon ? "Moon " + Math.round(r.moon.illumination * 100) + "% lit, " + (r.moon.altitude > 0 ? "up" : "down") : ""].filter(Boolean).join(" · ");
     $("au-meta").textContent = [r.kp != null ? "Kp " + Number(r.kp).toFixed(1) : "", r.dark ? "Dark" : "Sun at " + r.sun_altitude + "°",
       r.forecast_time ? "Forecast for " + new Date(r.forecast_time).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) : ""].filter(Boolean).join(" · ");
   } catch (err) { $("au-chance").textContent = "–"; $("au-summary").textContent = err.message; }
@@ -1157,6 +1265,41 @@ function showAuroraFrame() {
   $("au-map").src = "https://services.swpc.noaa.gov" + f.url;
   $("au-time").textContent = new Date(f.time_tag).toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"});
 }
+function utcTime(iso) { return iso ? new Date(iso).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) : ""; }
+async function loadPlan() {
+  try {
+    const p = await api("/api/aurora/plan");
+    $("au-plan-note").textContent = "Here the aurora usually needs Kp " + p.kp_needed + " or more to show on the camera. " + (p.note || "");
+    $("au-plan").innerHTML = `<table class="plan"><tr><th>Night of</th><th></th><th>Best</th><th>Kp</th><th>Cloud</th><th>Moon</th></tr>${p.nights.map((n) => {
+      const day = new Date(n.date + "T12:00:00").toLocaleDateString([], {weekday: "short", month: "short", day: "numeric"});
+      const best = n.best ? utcTime(n.best.time) + " (" + n.best.chance + "%)" : "–";
+      return `<tr><td>${day}</td><td class="v-${n.verdict.split(" ")[0]}">${n.verdict}</td><td>${best}</td><td>${n.kp_max ?? "–"}</td><td>${n.cloud_mean ?? "–"}%</td><td>${Math.round(n.moon * 100)}%</td></tr>`;
+    }).join("")}</table>`;
+  } catch (err) { $("au-plan").textContent = err.message; }
+}
+async function loadNotify() {
+  try {
+    const n = await api("/api/notify");
+    $("nt-on").checked = n.enabled;
+    $("nt-pics").checked = n.pictures;
+    $("nt-topic").textContent = n.topic;
+    $("nt-link").href = n.url;
+  } catch (err) { $("nt-state").textContent = err.message; }
+}
+async function saveNotify(extra) {
+  try {
+    await api("/api/notify", {method: "POST", body: {enabled: $("nt-on").checked, pictures: $("nt-pics").checked, ...(extra || {})}});
+    await loadNotify();
+    $("nt-state").textContent = "Saved.";
+  } catch (err) { $("nt-state").textContent = err.message; }
+}
+$("nt-on").onchange = () => saveNotify();
+$("nt-pics").onchange = () => saveNotify();
+$("nt-new").onclick = () => saveNotify({new_topic: true});
+$("nt-test").onclick = async () => {
+  try { await api("/api/notify/test", {method: "POST", body: {}}); $("nt-state").textContent = "Sent. It should show in the ntfy app."; }
+  catch (err) { $("nt-state").textContent = err.message; }
+};
 $("au-slide").oninput = showAuroraFrame;
 $("au-refresh").onclick = loadAurora;
 $("au-locate").onclick = async () => {
@@ -1166,7 +1309,8 @@ $("au-locate").onclick = async () => {
 };
 $("au-start").onclick = async () => {
   try {
-    const body = {threshold: Number($("au-threshold").value), seconds: Number($("au-seconds").value), interval: Number($("au-interval").value), iso: $("au-iso").value};
+    const body = {threshold: Number($("au-threshold").value), seconds: Number($("au-seconds").value), interval: Number($("au-interval").value), iso: $("au-iso").value,
+      max_cloud: Number($("au-cloud").value), auto_exposure: $("au-autoexp").checked, detect: $("au-detect").checked};
     const data = await api("/api/aurora/start", {method: "POST", body});
     $("au-state").textContent = (data.aurora && data.aurora.note) || "Watching.";
   } catch (err) { $("au-state").textContent = err.message; }

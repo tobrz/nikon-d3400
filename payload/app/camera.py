@@ -4,10 +4,13 @@ Every control the camera actually exposes is read from gphoto2 at runtime.
 Nothing here invents a setting the body did not return.
 """
 
+import fcntl
+import glob
 import os
 import re
 import subprocess
 import threading
+import time
 from datetime import datetime
 
 import geo
@@ -144,6 +147,54 @@ def adopt_preview(requested):
     if os.path.isfile(requested) and os.path.getsize(requested) > 0:
         return requested
     return ""
+
+
+ISO_PATH = "/main/imgsettings/iso"
+NIKON_VENDOR = "04b0"
+USBDEVFS_RESET = 0x5514  # _IO('U', 20)
+# gphoto2 errors that mean the USB link is wedged, not that the camera refused something. Nikons are known for it on
+# long tethered runs; a USB port reset brings them back without touching the camera.
+USB_STUCK = ("I/O problem", "Could not claim the USB device", "PTP I/O Error", "I/O in progress",
+             "Could not find the requested device", "PTP Timeout", "(-110:", "(-53:", "(-7:")
+
+
+def usb_stuck(message):
+    return any(marker in (message or "") for marker in USB_STUCK)
+
+
+def nikon_usb_device(root="/sys/bus/usb/devices"):
+    """/dev/bus/usb/BBB/DDD of the first Nikon on USB, or None."""
+    for vendor_file in glob.glob(os.path.join(root, "*", "idVendor")):
+        folder = os.path.dirname(vendor_file)
+        try:
+            with open(vendor_file) as handle:
+                if handle.read().strip().lower() != NIKON_VENDOR:
+                    continue
+            with open(os.path.join(folder, "busnum")) as handle:
+                bus = int(handle.read())
+            with open(os.path.join(folder, "devnum")) as handle:
+                dev = int(handle.read())
+        except (OSError, ValueError):
+            continue
+        return f"/dev/bus/usb/{bus:03d}/{dev:03d}"
+    return None
+
+
+def usb_reset():
+    """Reset the camera's USB port, like unplugging and replugging the cable. Returns what happened."""
+    device = nikon_usb_device()
+    if not device:
+        return "No Nikon on USB to reset."
+    try:
+        fd = os.open(device, os.O_WRONLY)
+        try:
+            fcntl.ioctl(fd, USBDEVFS_RESET, 0)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        return "USB reset failed: " + str(exc)
+    time.sleep(3)
+    return "Reset " + device
 
 
 SHUTTER_PATH = "/main/capturesettings/shutterspeed"
@@ -338,9 +389,28 @@ class Camera:
     def __init__(self, shots_dir):
         self.shots_dir = shots_dir
         self._lock = threading.Lock()
+        self._iso_choices = None
+        self.resets = 0
+        self.last_reset = ""
         os.makedirs(shots_dir, exist_ok=True)
 
-    def run(self, args, timeout=45):
+    def run(self, args, timeout=45, retry=True):
+        """One gphoto2 command. A wedged USB link gets a port reset and, if retry, one more try."""
+        try:
+            return self._run_once(args, timeout)
+        except CameraError as exc:
+            timed_out = "did not answer in time" in str(exc)
+            if not (usb_stuck(str(exc)) or timed_out):
+                raise
+            note = usb_reset()
+            if note.startswith("Reset"):
+                self.resets += 1
+                self.last_reset = datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " " + str(exc).splitlines()[-1][:120]
+            if not retry or not note.startswith("Reset"):
+                raise
+            return self._run_once(args, timeout)
+
+    def _run_once(self, args, timeout):
         try:
             done = subprocess.run(
                 ["gphoto2", *args],
@@ -367,7 +437,7 @@ class Camera:
             return {"model": "Busy with the shutter", "port": ""}
         try:
             try:
-                text = self.run(["--auto-detect"], timeout=12)
+                text = self._run_once(["--auto-detect"], timeout=12)
             except CameraError:
                 return None
             for line in text.splitlines():
@@ -529,11 +599,11 @@ class Camera:
             "--wait-event-and-download=30s",
         ]
         try:
-            text = self.run(args, timeout=whole + 90)
+            text = self.run(args, timeout=whole + 90, retry=False)
         except CameraError as exc:
             if "did not answer in time" in str(exc):
                 try:
-                    self.run(["--trigger-capture"], timeout=20)
+                    self.run(["--trigger-capture"], timeout=20, retry=False)
                 except CameraError:
                     pass
                 raise CameraError("The shutter was told to close. " + str(exc)) from exc
@@ -548,8 +618,37 @@ class Camera:
 
     def trigger(self):
         with self._lock:
-            text = self.run(["--trigger-capture"], timeout=20)
+            text = self.run(["--trigger-capture"], timeout=20, retry=False)
         return {"output": text.strip()}
+
+    def set_iso(self, iso):
+        """Set the nearest ISO the body offers. Returns the label used."""
+        with self._lock:
+            if self._iso_choices is None:
+                block = self._config_unlocked(ISO_PATH)
+                self._iso_choices = [item["label"] for item in block.get("choices") or []]
+            try:
+                label = nearest_number_label(float(iso), self._iso_choices)
+            except ValueError as exc:
+                raise CameraError(str(exc)) from exc
+            self.run(["--set-config", ISO_PATH + "=" + label], timeout=20)
+        return label
+
+    def wait_and_download(self, seconds, prefix="tether"):
+        """Listen for pictures taken with the camera's own shutter button and copy them here; the card keeps them.
+
+        Holds the camera only for `seconds`, so live view and the rest still get a turn between sessions.
+        """
+        pattern = os.path.join(self.shots_dir, prefix + "-%Y%m%d-%H%M%S-%f.%C")
+        with self._lock:
+            text = self.run(
+                ["--wait-event-and-download=" + str(int(seconds)) + "s", "--keep", "--filename", pattern,
+                 "--force-overwrite"],
+                timeout=int(seconds) + 60,
+            )
+        saved = [path for path in _saved_paths(text, self.shots_dir) if os.path.isfile(path)]
+        geo.stamp_many(saved)
+        return saved
 
     def preview(self, path):
         """One live-view frame.

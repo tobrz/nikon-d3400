@@ -15,6 +15,9 @@ from camera import Camera, CameraError, jpeg_payload, optional_seconds, thumb_ca
 import firmware
 import aurora
 import geo
+import imaging
+import notify
+import sky
 from guide import plan, rephrase
 from jobs import Jobs
 from update import REPO, UpdateError, apply_update, check_update, read_revision
@@ -119,6 +122,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, geo.load())
         elif path == "/api/aurora":
             self._aurora_outlook()
+        elif path == "/api/aurora/plan":
+            self._aurora_plan()
+        elif path == "/api/notify":
+            self._send(200, notify.public())
+        elif path == "/api/focus/frame":
+            # The live-view frame the last focus measurement used, so the page can zoom on the star.
+            self._file(os.path.join(DATA, "preview.jpg"), "image/jpeg")
         elif path == "/preview.jpg":
             try:
                 frame = CAMERA.preview(os.path.join(DATA, "preview.jpg"))
@@ -167,6 +177,20 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: CAMERA.set_movie(bool(body.get("recording"))))
         elif path == "/api/focus":
             self._guard(lambda: CAMERA.focus(str(body.get("direction", ""))))
+        elif path == "/api/focus/assist":
+            self._focus_assist()
+        elif path == "/api/notify":
+            try:
+                self._send(200, notify.public(notify.update(body)))
+            except ValueError as exc:
+                self._send(400, {"error": str(exc)})
+        elif path == "/api/notify/test":
+            error = notify.send("Nikon D3400", "Test alert from the camera Pi. Alerts work.", tags="camera", force=True)
+            self._send(502 if error else 200, {"error": error} if error else {"ok": True})
+        elif path == "/api/tether/start":
+            self._guard(JOBS.start_tether)
+        elif path == "/api/tether/stop":
+            self._send(200, JOBS.stop_tether())
         elif path == "/api/camera-thumbs":
             self._camera_thumbs(body)
         elif path == "/api/camera-files/pull":
@@ -184,6 +208,7 @@ class Handler(BaseHTTPRequestHandler):
                 body.get("count", 0),
                 body.get("seconds"),
                 body.get("fps", 24),
+                body.get("auto", False),
             ))
         elif path == "/api/timelapse/stop":
             self._send(200, JOBS.stop_timelapse())
@@ -199,6 +224,7 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: JOBS.start_aurora(
                 body.get("threshold", 30), body.get("interval", 20), body.get("seconds", 8),
                 body.get("iso", "1600"), body.get("aperture", ""), body.get("check_minutes", 5), body.get("hours", 12),
+                body.get("max_cloud", 80), body.get("auto_exposure", True), body.get("detect", True),
             ))
         elif path == "/api/aurora/stop":
             self._send(200, JOBS.stop_aurora())
@@ -240,9 +266,38 @@ class Handler(BaseHTTPRequestHandler):
     def _aurora_outlook(self):
         state = geo.load()
         try:
-            self._send(200, aurora.outlook(state.get("lat"), state.get("lon")))
+            out = aurora.outlook(state.get("lat"), state.get("lon"))
         except aurora.AuroraError as exc:
             self._send(502, {"error": str(exc)})
+            return
+        try:
+            out["clouds"] = sky.cloud_now(out["lat"], out["lon"])
+            out["moon"] = sky.moon(out["lat"], out["lon"])
+            out["kp_needed"] = round(sky.kp_needed(out["lat"], out["lon"]), 1)
+        except (sky.SkyError, ValueError):
+            pass
+        self._send(200, out)
+
+    def _aurora_plan(self):
+        state = geo.load()
+        if state.get("lat") is None or state.get("lon") is None:
+            self._send(400, {"error": "Save a location first (Place, or Use this device's location)."})
+            return
+        try:
+            self._send(200, sky.plan(state["lat"], state["lon"]))
+        except sky.SkyError as exc:
+            self._send(502, {"error": str(exc)})
+
+    def _focus_assist(self):
+        """One live-view frame, measured: how tight the brightest star is, plus a histogram."""
+        path = os.path.join(DATA, "preview.jpg")
+        try:
+            CAMERA.preview(path)
+            self._send(200, imaging.focus_metrics(path))
+        except CameraError as exc:
+            self._send(502, {"error": str(exc)})
+        except imaging.ImagingError as exc:
+            self._send(500, {"error": str(exc)})
 
     def _save_geo(self, body):
         try:
@@ -426,7 +481,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"saved": True, "mode": mode, "networks": [item["ssid"] for item in networks]})
 
     def _shots(self):
-        return list_shot_rows(os.path.join(DATA, "shots"))
+        folder = os.path.join(DATA, "shots")
+        rows = list_shot_rows(folder)
+        scores = imaging.load_scores(folder)
+        for row in rows:
+            score = scores.get(row.get("name"))
+            if score:
+                row["aurora"] = score.get("aurora")
+                row["mean"] = score.get("mean")
+        return rows
 
     def _delete_shots(self, body):
         folder = os.path.join(DATA, "shots")
@@ -447,6 +510,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as exc:
             self._send(500, {"error": str(exc)})
             return
+        imaging.forget_scores(folder, [os.path.basename(str(r)) for r in removed])
         self._send(200, {"removed": removed, "count": len(removed)})
 
     def _pull(self, body):

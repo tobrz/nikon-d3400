@@ -6,6 +6,9 @@ import SwiftUI
 struct ShotsView: View {
     @Environment(Pi.self) private var pi
     @State private var open: Picture?
+    @State private var auroraOnly = false
+    @State private var includeRaw = UserDefaults.standard.bool(forKey: "includeRaw")
+    @State private var saving: String?
 
     struct Picture: Identifiable, Hashable {
         var id: String { stem }
@@ -13,7 +16,9 @@ struct ShotsView: View {
         var jpg: String?
         var nef: String?
         var mtime: Double
+        var aurora: Double = 0
         var names: [String] { [jpg, nef].compactMap { $0 } }
+        var isMovie: Bool { jpg?.lowercased().hasSuffix(".mp4") == true }
     }
 
     private var pictures: [Picture] {
@@ -24,22 +29,41 @@ struct ShotsView: View {
             let ext = (s.name as NSString).pathExtension.lowercased()
             if ext == "jpg" || ext == "jpeg" { p.jpg = s.name } else if ext == "nef" { p.nef = s.name } else if p.jpg == nil { p.jpg = s.name }
             p.mtime = max(p.mtime, s.mtime ?? 0)
+            p.aurora = max(p.aurora, s.aurora ?? 0)
             m[stem] = p
         }
         return m.values.sorted { $0.mtime > $1.mtime }
     }
 
+    private var shown: [Picture] { auroraOnly ? pictures.filter { $0.aurora >= 2 } : pictures }
+
     var body: some View {
         NavigationStack {
             ScrollView {
+                photosReminder
                 // The count lives in the page: a phone's top bar shrinks toolbar text to a dot.
-                Text("\(pictures.count) pictures on the Pi").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack {
+                    Text("\(pictures.count) pictures on the Pi").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if pictures.contains(where: { $0.aurora >= 2 }) {
+                        Toggle(isOn: $auroraOnly) { Label("Aurora only", systemImage: "sparkles") }
+                            .toggleStyle(.button).font(.caption).controlSize(.small)
+                    }
+                }
+                .padding(.horizontal, 8)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], spacing: 6) {
-                    ForEach(pictures) { p in
-                        Button { open = p } label: { Thumb(name: p.jpg) .overlay(alignment: .bottomTrailing) {
-                            if p.nef != nil { Text("RAW").font(.caption2.bold()).padding(3).background(.black.opacity(0.6)).foregroundStyle(.white).padding(4) }
-                        } }
+                    ForEach(shown) { p in
+                        Button { open = p } label: { Thumb(name: p.isMovie ? nil : p.jpg, movie: p.isMovie)
+                            .overlay(alignment: .bottomTrailing) {
+                                if p.nef != nil { Text("RAW").font(.caption2.bold()).padding(3).background(.black.opacity(0.6)).foregroundStyle(.white).padding(4) }
+                            }
+                            .overlay(alignment: .topLeading) {
+                                if p.aurora >= 2 { Image(systemName: "sparkles").font(.caption.bold()).padding(4).background(.green.opacity(0.8), in: .circle).foregroundStyle(.black).padding(4) }
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                if !pi.inPhotos.contains(p.stem) { Circle().fill(.yellow).frame(width: 9, height: 9).padding(6) }
+                            }
+                        }
                     }
                 }
                 .padding(6)
@@ -48,20 +72,89 @@ struct ShotsView: View {
             .navigationTitle("Shots")
             .refreshable { await pi.loadShots() }
             .task { await pi.loadShots() }
-            .fullScreenCover(item: $open) { ShotViewer(pictures: pictures, start: $0) }
+            .fullScreenCover(item: $open) { ShotViewer(pictures: shown, start: $0) }
         }
+    }
+
+    /// The big reminder: pictures on the Pi that aren't in this phone's Photos library yet.
+    @ViewBuilder private var photosReminder: some View {
+        let waiting = pictures.filter { !pi.inPhotos.contains($0.stem) }
+        if !waiting.isEmpty || saving != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(saving ?? "\(waiting.count) new \(waiting.count == 1 ? "picture isn't" : "pictures aren't") in your Photos library yet",
+                      systemImage: "photo.badge.exclamationmark").font(.headline)
+                Text("They're only on the Pi until you save them. Yellow dots mark which.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Include RAW (NEF) files", isOn: $includeRaw).font(.subheadline)
+                    .onChange(of: includeRaw) { _, v in UserDefaults.standard.set(v, forKey: "includeRaw") }
+                HStack {
+                    Button { Task { await saveAll(waiting) } } label: {
+                        Label("Save all to Photos", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).tint(.yellow).foregroundStyle(.black).disabled(saving != nil)
+                    Menu {
+                        Button("They're already in Photos") { pi.markInPhotos(waiting.map(\.stem)) }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                }
+            }
+            .padding()
+            .background(Color.yellow.opacity(0.15), in: .rect(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(.yellow.opacity(0.6)))
+            .padding(.horizontal, 6)
+        }
+    }
+
+    private func saveAll(_ list: [Picture]) async {
+        guard await PhotoSaver.authorized() else { saving = nil; pi.lastError = "Allow adding to Photos in Settings."; return }
+        for (i, p) in list.reversed().enumerated() {        // oldest first, so Photos keeps them in shooting order
+            saving = "Saving \(i + 1) of \(list.count)…"
+            if await PhotoSaver.save(p, pi: pi, includeRaw: includeRaw) { pi.markInPhotos([p.stem]) }
+        }
+        saving = nil
+    }
+}
+
+/// Copies pictures (JPEG, optionally its NEF as the RAW half of a pair) and movies from the Pi into Photos.
+enum PhotoSaver {
+    static func authorized() async -> Bool {
+        let s = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        return s == .authorized || s == .limited
+    }
+
+    @MainActor static func save(_ p: ShotsView.Picture, pi: Pi, includeRaw: Bool) async -> Bool {
+        if p.isMovie, let name = p.jpg {
+            guard let d = await pi.data(pi.shotURL(name)) else { return false }
+            let tmp = FileManager.default.temporaryDirectory.appending(path: name)
+            guard (try? d.write(to: tmp)) != nil else { return false }
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            return (try? await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset().addResource(with: .video, fileURL: tmp, options: nil)
+            }) != nil
+        }
+        let jpg: Data? = if let j = p.jpg { await pi.data(pi.shotURL(j)) } else { nil }
+        let nef: Data? = if includeRaw || jpg == nil, let n = p.nef { await pi.data(pi.shotURL(n)) } else { nil }
+        guard jpg != nil || nef != nil else { return false }
+        return (try? await PHPhotoLibrary.shared().performChanges {
+            let r = PHAssetCreationRequest.forAsset()
+            if let jpg {
+                r.addResource(with: .photo, data: jpg, options: nil)
+                if let nef { r.addResource(with: .alternatePhoto, data: nef, options: nil) }
+            } else if let nef {
+                r.addResource(with: .photo, data: nef, options: nil)
+            }
+        }) != nil
     }
 }
 
 struct Thumb: View {
     @Environment(Pi.self) private var pi
     let name: String?
+    var movie = false
     @State private var image: UIImage?
 
     var body: some View {
         Color.secondary.opacity(0.15)
             .aspectRatio(1, contentMode: .fit)
-            .overlay { if let image { Image(uiImage: image).resizable().scaledToFill() } else { Image(systemName: "photo").foregroundStyle(.secondary) } }
+            .overlay { if let image { Image(uiImage: image).resizable().scaledToFill() } else { Image(systemName: movie ? "film" : "photo").foregroundStyle(.secondary) } }
             .clipped()
             .task(id: name) {
                 // Full JPEGs are large; decode a small version once.
@@ -125,7 +218,10 @@ struct ShotViewer: View {
             }
             PHPhotoLibrary.shared().performChanges({
                 PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
-            }) { ok, err in Task { @MainActor in message = ok ? "Saved to Photos" : (err?.localizedDescription ?? "Couldn't save") } }
+            }) { ok, err in Task { @MainActor in
+                message = ok ? "Saved to Photos" : (err?.localizedDescription ?? "Couldn't save")
+                if ok { pi.markInPhotos([current]) }
+            } }
         }
     }
 }

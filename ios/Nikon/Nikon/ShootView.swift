@@ -97,6 +97,8 @@ struct ShootView: View {
             }
             .disabled(pi.cameraName == nil)
             Text("Near/far steps need the lens on M; AF needs A.").font(.caption2).foregroundStyle(.secondary)
+            Divider()
+            StarFocusView(onStart: { live = false })
             if let e = pi.lastError { Text(e).font(.footnote).foregroundStyle(.red) }
         }
     }
