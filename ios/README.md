@@ -21,7 +21,10 @@ Network access. No Pi changes were needed.
   controls sit side by side; the tabs are the right-hand icon column.
 - **Shots:** a yellow reminder for pictures that aren't in this phone's Photos library yet, with **Save all to Photos**
   (optionally the NEF too, saved as the RAW half of a RAW+JPEG pair; movies as videos), a badge with that count on
-  the Shots tab and a yellow dot on each one. What's been saved is remembered per Pi on the phone. Aurora frames get a
+  the Shots tab and a yellow dot on each one. Saves go into a "Nikon D3400" album, and a picture only counts as saved
+  after the app finds it in the library (full Photos access); a JPEG+NEF pair Photos refuses is saved as two photos.
+  Deleting a picture that isn't confirmed in Photos asks first, with "Save to Photos first". What's been saved is
+  remembered per Pi on the phone. Aurora frames get a
   green badge and an "Aurora only" filter. Pictures on the Pi, JPEG + NEF as one (RAW badge). The viewer is full screen: swipe left/right through the set, EXIF under each picture (taken, camera, lens, focal length, aperture, shutter, ISO, comp., mode, metering, WB, flash, size, location), Save to Photos, Share, Delete.
 - **Aurora:** the Pi's outlook for its saved place (`GET /api/aurora`, `payload/app/aurora.py`): chance in view,
   Kp, dark or not, and a compass arrow with the bearing and height to aim at; **Use this phone's location** saves the

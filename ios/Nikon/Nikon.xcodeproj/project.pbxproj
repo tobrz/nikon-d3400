@@ -188,6 +188,7 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Nikon talks to the camera Raspberry Pi on your local network.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Nikon saves where you are on the camera Pi, for the aurora forecast and to tag your pictures.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Nikon saves pictures from the camera to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Nikon saves pictures from the camera into a Nikon D3400 album and checks each one arrived before it counts as saved.";
 								INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -220,6 +221,7 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Nikon talks to the camera Raspberry Pi on your local network.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Nikon saves where you are on the camera Pi, for the aurora forecast and to tag your pictures.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Nikon saves pictures from the camera to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Nikon saves pictures from the camera into a Nikon D3400 album and checks each one arrived before it counts as saved.";
 								INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

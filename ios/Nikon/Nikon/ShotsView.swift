@@ -1,6 +1,7 @@
 import ImageIO
 import Photos
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Pictures stored on the Pi, newest first. A JPEG and its NEF are one picture; the JPEG is what shows.
 struct ShotsView: View {
@@ -9,6 +10,7 @@ struct ShotsView: View {
     @State private var auroraOnly = false
     @State private var includeRaw = UserDefaults.standard.bool(forKey: "includeRaw")
     @State private var saving: String?
+    @State private var problems: [String] = []
 
     struct Picture: Identifiable, Hashable {
         var id: String { stem }
@@ -83,7 +85,11 @@ struct ShotsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label(saving ?? "\(waiting.count) new \(waiting.count == 1 ? "picture isn't" : "pictures aren't") in your Photos library yet",
                       systemImage: "photo.badge.exclamationmark").font(.headline)
-                Text("They're only on the Pi until you save them. Yellow dots mark which.").font(.caption).foregroundStyle(.secondary)
+                Text("They're only on the Pi until you save them. Yellow dots mark which. Saved pictures go in the \(PhotoSaver.albumName) album, and each one is checked in Photos before its dot goes away.").font(.caption).foregroundStyle(.secondary)
+                if !problems.isEmpty {
+                    Text("Not saved:\n" + problems.prefix(5).joined(separator: "\n") + (problems.count > 5 ? "\n…and \(problems.count - 5) more" : ""))
+                        .font(.caption).foregroundStyle(.red)
+                }
                 Toggle("Include RAW (NEF) files", isOn: $includeRaw).font(.subheadline)
                     .onChange(of: includeRaw) { _, v in UserDefaults.standard.set(v, forKey: "includeRaw") }
                 HStack {
@@ -104,44 +110,111 @@ struct ShotsView: View {
     }
 
     private func saveAll(_ list: [Picture]) async {
-        guard await PhotoSaver.authorized() else { saving = nil; pi.lastError = "Allow adding to Photos in Settings."; return }
+        problems = []
+        guard await PhotoSaver.authorized() else { problems = ["Allow Nikon full access to Photos in Settings > Privacy > Photos."]; return }
         for (i, p) in list.reversed().enumerated() {        // oldest first, so Photos keeps them in shooting order
             saving = "Saving \(i + 1) of \(list.count)…"
-            if await PhotoSaver.save(p, pi: pi, includeRaw: includeRaw) { pi.markInPhotos([p.stem]) }
+            if let problem = await PhotoSaver.save(p, pi: pi, includeRaw: includeRaw) { problems.append(problem) }
+            else { pi.markInPhotos([p.stem]) }
         }
         saving = nil
     }
 }
 
-/// Copies pictures (JPEG, optionally its NEF as the RAW half of a pair) and movies from the Pi into Photos.
+/// Copies pictures (JPEG, optionally its NEF as the RAW half of a pair) and movies from the Pi into Photos, into a
+/// "Nikon D3400" album, and only reports success after finding the new photo in the library. (Trusting the save call
+/// alone once marked pictures as saved that never arrived, and they were then deleted from the Pi.)
 enum PhotoSaver {
+    static let albumName = "Nikon D3400"
+    static let nefType = "com.nikon.raw-image"
+
+    private final class Box: @unchecked Sendable { var id: String? }
+
+    struct Failure: LocalizedError { let errorDescription: String? }
+
     static func authorized() async -> Bool {
-        let s = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        // Read/write, not add-only: checking that a photo really arrived, and the album, both need it.
+        let s = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         return s == .authorized || s == .limited
     }
 
-    @MainActor static func save(_ p: ShotsView.Picture, pi: Pi, includeRaw: Bool) async -> Bool {
-        if p.isMovie, let name = p.jpg {
-            guard let d = await pi.data(pi.shotURL(name)) else { return false }
-            let tmp = FileManager.default.temporaryDirectory.appending(path: name)
-            guard (try? d.write(to: tmp)) != nil else { return false }
-            defer { try? FileManager.default.removeItem(at: tmp) }
-            return (try? await PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.forAsset().addResource(with: .video, fileURL: tmp, options: nil)
-            }) != nil
-        }
-        let jpg: Data? = if let j = p.jpg { await pi.data(pi.shotURL(j)) } else { nil }
-        let nef: Data? = if includeRaw || jpg == nil, let n = p.nef { await pi.data(pi.shotURL(n)) } else { nil }
-        guard jpg != nil || nef != nil else { return false }
-        return (try? await PHPhotoLibrary.shared().performChanges {
-            let r = PHAssetCreationRequest.forAsset()
-            if let jpg {
-                r.addResource(with: .photo, data: jpg, options: nil)
-                if let nef { r.addResource(with: .alternatePhoto, data: nef, options: nil) }
-            } else if let nef {
-                r.addResource(with: .photo, data: nef, options: nil)
+    /// nil when the picture is in Photos (checked), else why not.
+    @MainActor static func save(_ p: ShotsView.Picture, pi: Pi, includeRaw: Bool) async -> String? {
+        do {
+            let album = try? await nikonAlbum()
+            if p.isMovie, let name = p.jpg {
+                guard let d = await pi.data(pi.shotURL(name)) else { return "Couldn't download \(name) from the Pi." }
+                let tmp = FileManager.default.temporaryDirectory.appending(path: name)
+                try d.write(to: tmp)
+                defer { try? FileManager.default.removeItem(at: tmp) }
+                try await create(album) { $0.addResource(with: .video, fileURL: tmp, options: options(name, UTType.mpeg4Movie.identifier)) }
+                return nil
             }
-        }) != nil
+            var jpg: Data?
+            if let j = p.jpg { jpg = await pi.data(pi.shotURL(j)); if jpg == nil { return "Couldn't download \(j) from the Pi." } }
+            var nef: Data?
+            if includeRaw || jpg == nil, let n = p.nef { nef = await pi.data(pi.shotURL(n)); if nef == nil { return "Couldn't download \(n) from the Pi." } }
+            if let jpg, let nef, let j = p.jpg, let n = p.nef {
+                do {
+                    // One photo with its RAW behind it, like the camera's own RAW+JPEG.
+                    try await create(album) {
+                        $0.addResource(with: .photo, data: jpg, options: options(j, UTType.jpeg.identifier))
+                        $0.addResource(with: .alternatePhoto, data: nef, options: options(n, nefType))
+                    }
+                } catch {
+                    // Photos refuses some pairs (error 3300). Keep both anyway, as two photos.
+                    try await create(album) { $0.addResource(with: .photo, data: jpg, options: options(j, UTType.jpeg.identifier)) }
+                    try await create(album) { $0.addResource(with: .photo, data: nef, options: options(n, nefType)) }
+                }
+            } else if let jpg, let j = p.jpg {
+                try await create(album) { $0.addResource(with: .photo, data: jpg, options: options(j, UTType.jpeg.identifier)) }
+            } else if let nef, let n = p.nef {
+                try await create(album) { $0.addResource(with: .photo, data: nef, options: options(n, nefType)) }
+            } else {
+                return "Nothing to save for \(p.stem)."
+            }
+            return nil
+        } catch {
+            return "\(p.stem): \(error.localizedDescription)"
+        }
+    }
+
+    private static func options(_ name: String, _ type: String) -> PHAssetResourceCreationOptions {
+        let o = PHAssetResourceCreationOptions()
+        o.originalFilename = name
+        o.uniformTypeIdentifier = type
+        return o
+    }
+
+    /// Make one asset, add it to the album, then look it up: only a photo that's really there counts.
+    private static func create(_ album: PHAssetCollection?, _ add: @escaping @Sendable (PHAssetCreationRequest) -> Void) async throws {
+        let box = Box()
+        try await PHPhotoLibrary.shared().performChanges {
+            let r = PHAssetCreationRequest.forAsset()
+            add(r)
+            if let placeholder = r.placeholderForCreatedAsset {
+                box.id = placeholder.localIdentifier
+                if let album { PHAssetCollectionChangeRequest(for: album)?.addAssets([placeholder] as NSArray) }
+            }
+        }
+        guard let id = box.id, PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).count == 1 else {
+            throw Failure(errorDescription: "Photos said it saved, but the picture isn't in the library.")
+        }
+    }
+
+    private static func nikonAlbum() async throws -> PHAssetCollection {
+        let opts = PHFetchOptions()
+        opts.predicate = NSPredicate(format: "title = %@", albumName)
+        if let found = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: opts).firstObject { return found }
+        let box = Box()
+        try await PHPhotoLibrary.shared().performChanges {
+            box.id = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: albumName)
+                .placeholderForCreatedAssetCollection.localIdentifier
+        }
+        guard let id = box.id, let made = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [id], options: nil).firstObject else {
+            throw Failure(errorDescription: "Couldn't make the \(albumName) album.")
+        }
+        return made
     }
 }
 
@@ -190,7 +263,7 @@ struct ShotViewer: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
                 ToolbarItemGroup(placement: .bottomBar) {
-                    Button { save() } label: { Label("Save to Photos", systemImage: "square.and.arrow.down") }.disabled(loaded[current] == nil)
+                    Button { save() } label: { Label("Save to Photos", systemImage: "square.and.arrow.down") }
                     if let d = loaded[current], let img = UIImage(data: d) {
                         ShareLink(item: Image(uiImage: img), preview: SharePreview(picture.stem, image: Image(uiImage: img)))
                     }
@@ -200,28 +273,34 @@ struct ShotViewer: View {
                     Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
                 }
             }
-            .confirmationDialog("Delete this picture from the Pi?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete \(picture.names.joined(separator: " + "))", role: .destructive) {
+            .confirmationDialog(pi.inPhotos.contains(picture.stem) ? "Delete this picture from the Pi?" : "This picture is NOT in your Photos library",
+                                isPresented: $confirmDelete, titleVisibility: .visible) {
+                if !pi.inPhotos.contains(picture.stem) {
+                    Button("Save to Photos first") { save() }
+                }
+                Button(pi.inPhotos.contains(picture.stem) ? "Delete \(picture.names.joined(separator: " + "))" : "Delete it anyway (gone for good)", role: .destructive) {
                     Task { await pi.deleteShots(picture.names); dismiss() }
                 }
-            } message: { Text("The camera card is not changed.") }
+            } message: {
+                Text(pi.inPhotos.contains(picture.stem) ? "It's in Photos. The camera card is not changed."
+                     : "The Pi has the only copy unless it's still on the camera's card.")
+            }
             .onAppear { current = start.id }
             .onChange(of: current) { _, _ in message = nil }
         }
     }
 
     private func save() {
-        guard let data = loaded[current] else { return }
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                Task { @MainActor in message = "Allow adding to Photos in Settings." }; return
+        let p = picture
+        Task {
+            guard await PhotoSaver.authorized() else { message = "Allow Nikon full access to Photos in Settings."; return }
+            message = "Saving…"
+            if let problem = await PhotoSaver.save(p, pi: pi, includeRaw: UserDefaults.standard.bool(forKey: "includeRaw")) {
+                message = problem
+            } else {
+                message = "In Photos (\(PhotoSaver.albumName) album)"
+                pi.markInPhotos([p.stem])
             }
-            PHPhotoLibrary.shared().performChanges({
-                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
-            }) { ok, err in Task { @MainActor in
-                message = ok ? "Saved to Photos" : (err?.localizedDescription ?? "Couldn't save")
-                if ok { pi.markInPhotos([current]) }
-            } }
         }
     }
 }

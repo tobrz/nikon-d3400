@@ -1128,14 +1128,14 @@ async function deletePiShots(names, all) {
   const label = $("shots-delete-state");
   const listed = (names || []).filter(Boolean);
   if (all) {
-    const ok = confirm("Delete every picture stored on the Pi? Pictures still on the camera card stay there.");
+    const ok = confirm("Delete every picture stored on the Pi? This page can't tell what's already in your Photos library: anything not saved somewhere else, and not still on the camera card, is gone for good. In the iPhone app, pictures with a yellow dot are not in Photos yet.");
     if (!ok) return;
   } else if (!listed.length) {
     return;
   } else {
     const ok = confirm(listed.length > 1
-      ? "Delete this picture from the Pi? The JPEG and the raw file both go. The camera card is unchanged."
-      : "Delete " + listed[0] + " from the Pi? The camera card is unchanged.");
+      ? "Delete this picture from the Pi? The JPEG and the raw file both go. If it isn't saved somewhere else or still on the camera card, it's gone for good."
+      : "Delete " + listed[0] + " from the Pi? If it isn't saved somewhere else or still on the camera card, it's gone for good.");
     if (!ok) return;
   }
   if (label) label.textContent = "Deleting…";
