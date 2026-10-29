@@ -17,7 +17,7 @@ Network access. No Pi changes were needed.
   exposures and Bulb are handled by the Pi), the result replaces live view, quick pickers for mode, ISO, shutter,
   aperture, exposure compensation, white balance and focus mode, and focus steps / AF. On an open Duo the picture and the
   controls sit side by side; the tabs are the right-hand icon column.
-- **Shots:** pictures on the Pi, JPEG + NEF as one (RAW badge), viewer with Save to Photos, Share and Delete.
+- **Shots:** pictures on the Pi, JPEG + NEF as one (RAW badge). The viewer is full screen: swipe left/right through the set, EXIF under each picture (taken, camera, lens, focal length, aperture, shutter, ISO, comp., mode, metering, WB, flash, size, location), Save to Photos, Share, Delete.
 - **Programs:** timelapse, bracket, lightning, card offload, with live progress (status polls every 5 s).
 - **Camera:** status, every setting the body reports (filterable, editable), the Pi's web page for Wi-Fi, Place, Guide
   and updates, Disconnect.
