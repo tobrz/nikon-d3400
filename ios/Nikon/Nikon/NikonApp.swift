@@ -38,6 +38,7 @@ struct MainTabs: View {
         TabView {
             Tab("Shoot", systemImage: "camera.aperture") { ShootView() }
             Tab("Shots", systemImage: "photo.on.rectangle") { ShotsView() }
+            Tab("Aurora", systemImage: "sparkles") { AuroraView() }
             Tab("Programs", systemImage: "timer") { ProgramsView() }
             Tab("Camera", systemImage: "slider.horizontal.3") { CameraView() }
         }

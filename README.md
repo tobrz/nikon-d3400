@@ -195,6 +195,17 @@ The D3400 has no GPS receiver. SnapBridge is what copies a phone's location into
 
 **Use this phone's location** asks the browser. A phone often blocks that on a plain `http://` page. Type the numbers from Maps if it does. **Set the camera clock** writes the Pi's time into the body. **Write location into pictures on the Pi** stamps files that are already stored here. With the SnapBridge box checked, the Pi leaves the clock and the location alone.
 
+### Aurora
+
+NOAA's OVATION aurora model (30-90 minute forecast, 1° grid) and the 1-minute Kp index, for the location saved on the
+Place tab. `GET /api/aurora` returns the chance the aurora is in view (the strongest glow within ~1,000 km, weighted
+toward nearer), where to aim (compass bearing and height), Kp, and whether the sun is far enough down (−12°).
+`POST /api/aurora/start` with `threshold`, `interval`, `seconds`, `iso`, optional `aperture`, `check_minutes` (5) and
+`hours` (12) runs an all-night watch: every check it updates the outlook; while it's dark and the chance is at or over
+the threshold it sets the ISO (and aperture) once and shoots `aurora-<run>-NNNN` frames, tagged with the saved
+location, until the next check; it stops at dawn, at the end of `hours`, or on `POST /api/aurora/stop`. The Pi needs
+internet (house Wi-Fi or Starlink) for the forecast. The iPhone app's Aurora tab drives this.
+
 ### Shots
 
 Pictures already on the Pi show first on this tab, newest first. A JPEG and the NEF beside it are one picture, and the JPEG is what the page shows. Tap a picture to open it large in the page. Left and right, or a swipe, move through that set. A picture still on the camera opens as its thumbnail. A NEF alone uses the preview stored in the file when the Pi can read one. **Show pictures on the camera** loads the newest 24 thumbnails from the card. The missing ones are read together, in one camera session, then kept in `/var/lib/nikon-d3400/thumbs`. The next visit does not ask the camera for those again. A thumbnail is not a full copy. **Copy, then download** pulls that file onto the Pi and saves it to the phone or laptop. **Offload camera card to the Pi** copies every picture onto the Pi, then deletes only the copies that arrived. A picture that fails to copy stays on the camera. That is how you free the camera card in the field. **Delete** on a picture removes that JPEG and its raw file from the Pi. **Delete all on the Pi** removes every file in that folder. Neither button removes a picture from the camera card. The copies stay on the Pi until you delete them here or drag them into Photos from `smb://nikon-d3400.local/shots`. **Download all** saves every picture stored on the Pi as `nikon-d3400.zip`. The zip is stored, not recompressed, so NEFs stay intact. The camera card is unchanged.

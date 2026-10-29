@@ -26,12 +26,15 @@ struct Shot: Codable, Identifiable, Hashable {
 
 struct Jobs: Codable {
     struct Run: Codable { var running: Bool?; var taken: Int?; var count: Int?; var error: String?; var note: String?; var movie: String?
-        var triggers: Int?; var downloaded: Int?; var total: Int?; var copied: Int?; var deleted: Int?; var kept: Int? }
+        var triggers: Int?; var downloaded: Int?; var total: Int?; var copied: Int?; var deleted: Int?; var kept: Int?
+        // aurora watch
+        var checks: Int?; var visible: Int?; var threshold: Int?; var shooting: Bool?; var direction: String?; var last_check: String? }
     var timelapse: Run?
     var bracket: Run?
     var lightning: Run?
     var offload: Run?
-    var anyRunning: Bool { [timelapse, bracket, lightning, offload].contains { $0?.running == true } }
+    var aurora: Run?
+    var anyRunning: Bool { [timelapse, bracket, lightning, offload, aurora].contains { $0?.running == true } }
 }
 
 struct PiStatus: Codable {
@@ -41,6 +44,23 @@ struct PiStatus: Codable {
     var revision: String?
     var wifi: Wifi?
     struct Wifi: Codable { var ap_up: Bool?; var client_connected: Bool?; var ssid: String?; var ap_ssid: String? }
+}
+
+/// GET /api/aurora (payload/app/aurora.py).
+struct AuroraOutlook: Codable {
+    var visible: Int
+    var overhead: Int?
+    var bearing: Int?
+    var direction: String?
+    var elevation: Double?
+    var distance_km: Int?
+    var kp: Double?
+    var forecast_time: String?
+    var sun_altitude: Double?
+    var dark: Bool?
+    var lat: Double?
+    var lon: Double?
+    var summary: String?
 }
 
 struct CaptureResult: Codable { var files: [String]?; var shutter: String?; var output: String? }
@@ -189,6 +209,15 @@ final class Pi {
         struct R: Codable {}
         _ = try? await send("POST", "api/\(job)/stop", [:]) as R
         await refreshStatus()
+    }
+
+    func aurora() async throws -> AuroraOutlook { try await get("api/aurora") }
+
+    func saveLocation(lat: Double, lon: Double, alt: Double?) async {
+        var b: [String: Any] = ["lat": lat, "lon": lon]
+        if let alt { b["alt"] = alt }
+        struct R: Codable {}
+        do { let _: R = try await send("POST", "api/geo", b); lastError = nil } catch { lastError = error.localizedDescription }
     }
 
     func deleteShots(_ names: [String]) async {

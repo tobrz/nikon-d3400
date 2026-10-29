@@ -1,0 +1,282 @@
+import Charts
+import CoreLocation
+import SwiftUI
+
+/// Northern lights: the Pi's outlook for its saved place (chance in view, where to aim, dark yet), NOAA's map with a time
+/// slider, the 3-day Kp forecast, and the all-night watch that shoots when the aurora is likely.
+struct AuroraView: View {
+    @Environment(Pi.self) private var pi
+    @Environment(\.horizontalSizeClass) private var width
+    @State private var outlook: AuroraOutlook?
+    @State private var error: String?
+    @State private var locator = Locator()
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if width == .regular {
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(spacing: 16) { now; WatchCard() }.frame(maxWidth: .infinity)
+                        VStack(spacing: 16) { AuroraMap(); KpForecast() }.frame(maxWidth: .infinity)
+                    }
+                    .padding()
+                } else {
+                    VStack(spacing: 16) { now; AuroraMap(); WatchCard(); KpForecast() }.padding()
+                }
+            }
+            .navigationTitle("Aurora")
+            .refreshable { await load() }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        do { outlook = try await pi.aurora(); error = nil } catch { self.error = error.localizedDescription }
+    }
+
+    private var now: some View {
+        Panel(title: "Right now") {
+            if let o = outlook {
+                HStack(spacing: 18) {
+                    Gauge(value: Double(o.visible), in: 0...100) { Text("in view") } currentValueLabel: { Text("\(o.visible)%") }
+                        .gaugeStyle(.accessoryCircular).tint(Gradient(colors: [.gray, .green, .mint, .purple])).scaleEffect(1.5)
+                        .frame(width: 90, height: 90)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(o.summary ?? "").font(.subheadline)
+                        HStack(spacing: 12) {
+                            if let kp = o.kp { Label("Kp \(kp, specifier: "%.1f")", systemImage: "waveform.path.ecg") }
+                            Label(o.dark == true ? "Dark" : "Not dark yet", systemImage: o.dark == true ? "moon.stars.fill" : "sun.horizon.fill")
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let b = o.bearing {
+                    HStack(spacing: 16) {
+                        Compass(bearing: Double(b)).frame(width: 110, height: 110)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Aim \(o.direction ?? "") · \(b)°").font(.headline)
+                            if let e = o.elevation { Text(e < 15 ? "Low on the horizon (\(Int(e))° up)" : "About \(Int(e))° up").font(.subheadline) }
+                            if let d = o.distance_km { Text("Strongest glow about \(d) km away").font(.caption).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+                Text("NOAA forecast for \(time(o.forecast_time)) · \(String(format: "%.3f, %.3f", o.lat ?? 0, o.lon ?? 0))")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else if let error {
+                Text(error).font(.footnote).foregroundStyle(error.contains("location") ? Color.secondary : Color.red)
+            } else { ProgressView() }
+            Button {
+                Task {
+                    if let loc = await locator.current() {
+                        await pi.saveLocation(lat: loc.coordinate.latitude, lon: loc.coordinate.longitude, alt: loc.altitude)
+                        await load()
+                    } else { error = "Allow location for Nikon in Settings, or set the place on the Pi's page." }
+                }
+            } label: { Label("Use this phone's location", systemImage: "location") }
+                .buttonStyle(.bordered).font(.footnote)
+        }
+    }
+
+    private func time(_ iso: String?) -> String {
+        guard let iso, let d = ISO8601DateFormatter().date(from: iso) else { return "—" }
+        return d.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+struct Panel<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.background.secondary, in: .rect(cornerRadius: 16))
+    }
+}
+
+/// A compass rose with an arrow to the bearing (0° = north, up).
+struct Compass: View {
+    let bearing: Double
+    var body: some View {
+        ZStack {
+            Circle().stroke(.secondary.opacity(0.4), lineWidth: 2)
+            ForEach(Array(["N", "E", "S", "W"].enumerated()), id: \.0) { i, n in
+                Text(n).font(.caption2.bold()).foregroundStyle(n == "N" ? .red : .secondary)
+                    .offset(y: -44).rotationEffect(.degrees(Double(i) * 90))
+            }
+            Image(systemName: "location.north.fill").font(.system(size: 34)).foregroundStyle(.green)
+                .rotationEffect(.degrees(bearing))
+        }
+    }
+}
+
+/// NOAA's northern-hemisphere OVATION map: the last 24 hours in 5-minute frames, the newest is the forecast.
+struct AuroraMap: View {
+    struct Frame: Codable { let url: String; let time_tag: String }
+    @State private var frames: [Frame] = []
+    @State private var index = 0.0
+    @State private var image: UIImage?
+    @State private var cache: [String: UIImage] = [:]
+
+    var body: some View {
+        Panel(title: "Where the lights are") {
+            ZStack {
+                Color.black
+                if let image { Image(uiImage: image).resizable().scaledToFit() } else { ProgressView() }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: 12))
+            if frames.count > 1 {
+                let f = frames[min(Int(index), frames.count - 1)]
+                Slider(value: $index, in: 0...Double(frames.count - 1), step: 1)
+                HStack {
+                    Text(label(f.time_tag, last: Int(index) == frames.count - 1)).font(.caption.bold())
+                    Spacer()
+                    Button("Latest") { index = Double(frames.count - 1) }.font(.caption)
+                }
+            }
+            Text("Green to red is the chance overhead. You can see aurora up to ~1,000 km toward it, low in the sky.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .task {
+            guard frames.isEmpty, let u = URL(string: "https://services.swpc.noaa.gov/products/animations/ovation_north_24h.json"),
+                  let (d, _) = try? await URLSession.shared.data(from: u),
+                  let all = try? JSONDecoder().decode([Frame].self, from: d) else { return }
+            frames = Array(all.suffix(144))      // last 12 hours keeps the slider usable
+            index = Double(frames.count - 1)
+            await show(Int(index))
+        }
+        .onChange(of: index) { _, i in Task { await show(Int(i)) } }
+    }
+
+    private func show(_ i: Int) async {
+        guard frames.indices.contains(i) else { return }
+        let url = frames[i].url
+        if let img = cache[url] { image = img; return }
+        guard let u = URL(string: "https://services.swpc.noaa.gov" + url), let (d, _) = try? await URLSession.shared.data(from: u),
+              let img = UIImage(data: d) else { return }
+        cache[url] = img
+        if frames.indices.contains(Int(index)), frames[Int(index)].url == url { image = img }
+    }
+
+    private func label(_ tag: String, last: Bool) -> String {
+        let f = ISO8601DateFormatter()
+        guard let d = f.date(from: tag) else { return tag }
+        return (last ? "Forecast · " : "") + d.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+}
+
+/// NOAA's 3-day planetary Kp forecast (3-hour blocks). Kp 5+ is a storm; around Kp 5-6 aurora can reach the northern US.
+struct KpForecast: View {
+    struct Row: Identifiable { let id = UUID(); let time: Date; let kp: Double; let predicted: Bool }
+    @State private var rows: [Row] = []
+
+    var body: some View {
+        Panel(title: "Next 3 days (Kp)") {
+            if rows.isEmpty { ProgressView() } else {
+                Chart(rows) { r in
+                    BarMark(x: .value("Time", r.time, unit: .hour), y: .value("Kp", r.kp))
+                        .foregroundStyle(r.kp >= 5 ? .purple : r.kp >= 4 ? .green : .gray)
+                }
+                .chartYScale(domain: 0...9)
+                .chartYAxis { AxisMarks(values: [0, 3, 5, 7, 9]) }
+                .frame(height: 160)
+                if let peak = rows.max(by: { $0.kp < $1.kp }) {
+                    Text("Highest: Kp \(peak.kp, specifier: "%.1f") around \(peak.time.formatted(.dateTime.weekday(.abbreviated).hour()))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .task {
+            guard rows.isEmpty, let u = URL(string: "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"),
+                  let (d, _) = try? await URLSession.shared.data(from: u),
+                  let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { return }
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"; f.timeZone = TimeZone(identifier: "UTC")
+            rows = arr.compactMap { r in
+                guard (r["observed"] as? String) == "predicted", let t = (r["time_tag"] as? String).flatMap(f.date(from:)),
+                      let kp = r["kp"] as? Double else { return nil }
+                return Row(time: t, kp: kp, predicted: true)
+            }
+        }
+    }
+}
+
+/// The Pi's all-night watch.
+struct WatchCard: View {
+    @Environment(Pi.self) private var pi
+    @State private var threshold = 30.0
+    @State private var interval = 20
+    @State private var seconds = 8
+    @State private var iso = "1600"
+
+    var body: some View {
+        let run = pi.status?.jobs?.aurora
+        Panel(title: "Watch tonight") {
+            if run?.running == true {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Image(systemName: run?.shooting == true ? "camera.fill" : "eye").foregroundStyle(run?.shooting == true ? .green : .secondary)
+                        Text(run?.shooting == true ? "Shooting" : "Watching").font(.headline)
+                        Spacer()
+                        Text("\(run?.taken ?? 0) frames").monospacedDigit()
+                    }
+                    Text(run?.note ?? "").font(.subheadline)
+                    Text("Last check \(run?.last_check ?? "—") · \(run?.checks ?? 0) checks · in view \(run?.visible ?? 0)% · trigger \(run?.threshold ?? 0)%")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Stop watching", role: .destructive) { Task { await pi.stop("aurora") } }.buttonStyle(.bordered)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Shoot when it's at least \(Int(threshold))% likely in view").font(.subheadline)
+                    Slider(value: $threshold, in: 5...80, step: 5)
+                    Stepper("Exposure \(seconds) s", value: $seconds, in: 2...30)
+                    Stepper("Every \(interval) s between frames", value: $interval, in: 1...300, step: 5)
+                    Picker("ISO", selection: $iso) { ForEach(["800", "1600", "3200", "6400"], id: \.self) { Text($0) } }.pickerStyle(.segmented)
+                    Text("Tripod, lens on M focused at infinity, aimed the way the arrow says. The Pi checks NOAA every 5 minutes, shoots only when it's dark and likely, and stops at dawn. You can go to bed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        Task { await pi.start("aurora", ["threshold": Int(threshold), "interval": interval, "seconds": seconds, "iso": iso]) }
+                    } label: { Label("Watch tonight", systemImage: "moon.stars").frame(maxWidth: .infinity).padding(.vertical, 6) }
+                        .buttonStyle(.borderedProminent).tint(.green)
+                        .disabled(pi.status?.jobs?.anyRunning == true)
+                    if let e = run?.error, !e.isEmpty { Text(e).font(.caption).foregroundStyle(.red) }
+                    if let n = run?.note, !n.isEmpty, run?.taken ?? 0 > 0 { Text("Last run: \(n)").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+            if let e = pi.lastError { Text(e).font(.caption).foregroundStyle(.red) }
+        }
+    }
+}
+
+/// One location fix for "Use this phone's location".
+@MainActor
+final class Locator: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var waiting: CheckedContinuation<CLLocation?, Never>?
+
+    func current() async -> CLLocation? {
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
+        return await withCheckedContinuation { c in
+            waiting = c
+            manager.requestLocation()
+        }
+    }
+
+    nonisolated func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
+        Task { @MainActor in waiting?.resume(returning: locs.last); waiting = nil }
+    }
+    nonisolated func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in waiting?.resume(returning: nil); waiting = nil }
+    }
+    nonisolated func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
+        Task { @MainActor in
+            if m.authorizationStatus == .denied || m.authorizationStatus == .restricted { waiting?.resume(returning: nil); waiting = nil }
+            else if m.authorizationStatus != .notDetermined, waiting != nil { m.requestLocation() }
+        }
+    }
+}

@@ -18,6 +18,12 @@ Network access. No Pi changes were needed.
   aperture, exposure compensation, white balance and focus mode, and focus steps / AF. On an open Duo the picture and the
   controls sit side by side; the tabs are the right-hand icon column.
 - **Shots:** pictures on the Pi, JPEG + NEF as one (RAW badge). The viewer is full screen: swipe left/right through the set, EXIF under each picture (taken, camera, lens, focal length, aperture, shutter, ISO, comp., mode, metering, WB, flash, size, location), Save to Photos, Share, Delete.
+- **Aurora:** the Pi's outlook for its saved place (`GET /api/aurora`, `payload/app/aurora.py`): chance in view,
+  Kp, dark or not, and a compass arrow with the bearing and height to aim at; **Use this phone's location** saves the
+  phone's position on the Pi (also used to tag pictures). NOAA's northern-hemisphere OVATION map with a 12-hour time
+  slider (the newest frame is the forecast) and the 3-day Kp forecast, both read straight from NOAA by the phone.
+  **Watch tonight** starts the Pi's all-night aurora watch (threshold, exposure, interval, ISO): it checks NOAA every
+  5 minutes, shoots only when it's dark and the chance in view is over the threshold, and stops at dawn.
 - **Programs:** timelapse, bracket, lightning, card offload, with live progress (status polls every 5 s).
 - **Camera:** status, every setting the body reports (filterable, editable), the Pi's web page for Wi-Fi, Place, Guide
   and updates, Disconnect.
