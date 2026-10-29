@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from camera import Camera, CameraError, jpeg_payload, optional_seconds, thumb_cache_key
 import firmware
+import aurora
 import geo
 from guide import plan, rephrase
 from jobs import Jobs
@@ -116,6 +117,8 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: wifi_state(WIFI_PATH), wifi=True)
         elif path == "/api/geo":
             self._send(200, geo.load())
+        elif path == "/api/aurora":
+            self._aurora_outlook()
         elif path == "/preview.jpg":
             try:
                 frame = CAMERA.preview(os.path.join(DATA, "preview.jpg"))
@@ -192,6 +195,13 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(lambda: JOBS.start_lightning(body.get("frames", 30), body.get("gap", 0.4)))
         elif path == "/api/lightning/stop":
             self._send(200, JOBS.stop_lightning())
+        elif path == "/api/aurora/start":
+            self._guard(lambda: JOBS.start_aurora(
+                body.get("threshold", 30), body.get("interval", 20), body.get("seconds", 8),
+                body.get("iso", "1600"), body.get("aperture", ""), body.get("check_minutes", 5), body.get("hours", 12),
+            ))
+        elif path == "/api/aurora/stop":
+            self._send(200, JOBS.stop_aurora())
         elif path == "/api/guide":
             self._guide(body)
         elif path == "/api/wifi":
@@ -226,6 +236,13 @@ class Handler(BaseHTTPRequestHandler):
         result = CAMERA.capture(seconds=optional_seconds(body.get("seconds")))
         result["clock"] = clock
         return result
+
+    def _aurora_outlook(self):
+        state = geo.load()
+        try:
+            self._send(200, aurora.outlook(state.get("lat"), state.get("lon")))
+        except aurora.AuroraError as exc:
+            self._send(502, {"error": str(exc)})
 
     def _save_geo(self, body):
         try:

@@ -16,6 +16,7 @@ from camera import (
     optional_seconds,
     shutter_seconds,
 )
+import aurora
 import geo
 
 
@@ -33,6 +34,9 @@ class Jobs:
         self._stop_timelapse = threading.Event()
         self._stop_bracket = threading.Event()
         self._stop_lightning = threading.Event()
+        self.aurora = {"running": False, "taken": 0, "checks": 0, "error": "", "note": "", "visible": 0, "threshold": 0,
+                       "shooting": False, "direction": "", "bearing": None, "dark": False, "kp": None, "last_check": ""}
+        self._stop_aurora = threading.Event()
 
     def _busy(self):
         return (
@@ -40,6 +44,7 @@ class Jobs:
             or self.bracket["running"]
             or self.lightning["running"]
             or self.offload["running"]
+            or self.aurora["running"]
         )
 
     def snapshot(self):
@@ -49,6 +54,7 @@ class Jobs:
                 "bracket": dict(self.bracket),
                 "lightning": dict(self.lightning),
                 "offload": dict(self.offload),
+                "aurora": dict(self.aurora),
             }
 
     def start_timelapse(self, interval, count, seconds=None, fps=24):
@@ -142,6 +148,114 @@ class Jobs:
                 self.timelapse["taken"] = taken
                 if movie:
                     self.timelapse["movie"] = os.path.basename(movie)
+
+    def start_aurora(self, threshold=30, interval=20, seconds=8, iso="1600", aperture="", check_minutes=5, hours=12):
+        """Watch the forecast all night; when the aurora is likely in view and it is dark, shoot until it fades or dawn."""
+        threshold = max(1, min(100, int(threshold)))
+        interval = max(1, int(round(float(interval))))
+        exposure = optional_seconds(seconds)
+        state = geo.load()
+        if state.get("lat") is None or state.get("lon") is None:
+            raise CameraError("Save a location first (Place, or Use this phone's location in the app).")
+        with self._lock:
+            if self._busy():
+                raise CameraError("A run is already going.")
+            self.aurora = {
+                "running": True, "taken": 0, "checks": 0, "error": "", "threshold": threshold, "interval": interval,
+                "seconds": exposure, "shooting": False, "visible": 0, "direction": "", "bearing": None, "dark": False,
+                "kp": None, "last_check": "", "note": "Checking NOAA's forecast.",
+            }
+        self._stop_aurora.clear()
+        threading.Thread(
+            target=self._aurora_loop,
+            args=(float(state["lat"]), float(state["lon"]), threshold, interval, exposure, str(iso or ""),
+                  str(aperture or ""), max(1, int(check_minutes)), float(hours)),
+            daemon=True,
+        ).start()
+        return self.snapshot()
+
+    def stop_aurora(self):
+        self._stop_aurora.set()
+        with self._lock:
+            if self.aurora["running"]:
+                self.aurora["note"] = "Stopping after this shutter closes."
+        return self.snapshot()
+
+    def _aurora_loop(self, lat, lon, threshold, interval, seconds, iso, aperture, check_minutes, hours):
+        run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        end = time.time() + hours * 3600
+        taken = 0
+        was_dark = False
+        settings_applied = False
+        try:
+            while not self._stop_aurora.is_set() and time.time() < end:
+                try:
+                    out = aurora.outlook(lat, lon)
+                except aurora.AuroraError as exc:
+                    with self._lock:
+                        self.aurora["note"] = str(exc) + " Trying again in " + str(check_minutes) + " minutes."
+                    if self._stop_aurora.wait(check_minutes * 60):
+                        break
+                    continue
+                go = out["dark"] and out["visible"] >= threshold
+                was_dark = was_dark or out["dark"]
+                with self._lock:
+                    self.aurora.update({
+                        "checks": self.aurora["checks"] + 1, "visible": out["visible"], "direction": out["direction"],
+                        "bearing": out["bearing"], "dark": out["dark"], "kp": out["kp"],
+                        "last_check": datetime.now().strftime("%H:%M"), "shooting": go,
+                    })
+                if was_dark and not out["dark"] and out["sun_altitude"] > -6:
+                    with self._lock:
+                        self.aurora["note"] = "Dawn. Stopped after " + str(taken) + " frames."
+                    break
+                if not go:
+                    with self._lock:
+                        why = "not dark yet" if not out["dark"] else f"{out['visible']}% is under {threshold}%"
+                        self.aurora["note"] = f"Watching: {why}. Next check in {check_minutes} min. {taken} frames so far."
+                    if self._stop_aurora.wait(check_minutes * 60):
+                        break
+                    continue
+                if not settings_applied:
+                    wanted = {}
+                    if iso:
+                        wanted["iso"] = iso
+                    if aperture:
+                        wanted["f-number"] = aperture
+                    if wanted:
+                        try:
+                            self.camera.apply_settings(wanted)
+                        except CameraError:
+                            pass
+                    settings_applied = True
+                # Shoot until the next forecast check is due.
+                check_at = time.time() + check_minutes * 60
+                while time.time() < check_at and not self._stop_aurora.is_set():
+                    with self._lock:
+                        self.aurora["note"] = (f"Aurora likely ({out['visible']}%, aim {out['direction']}). "
+                                               f"Frame {taken + 1}.")
+                    result = self.camera.capture(seconds=seconds, name=f"aurora-{run_id}-{taken + 1:04d}")
+                    taken += 1
+                    geo.stamp_many(result.get("files") or [])
+                    with self._lock:
+                        self.aurora["taken"] = taken
+                    if self._stop_aurora.wait(interval):
+                        break
+            else:
+                with self._lock:
+                    if not self._stop_aurora.is_set():
+                        self.aurora["note"] = "Watch time is over. " + str(taken) + " frames."
+        except (CameraError, ValueError, OSError) as exc:
+            with self._lock:
+                self.aurora["error"] = str(exc)
+                self.aurora["note"] = str(exc)
+        finally:
+            with self._lock:
+                self.aurora["running"] = False
+                self.aurora["shooting"] = False
+                self.aurora["taken"] = taken
+                if self._stop_aurora.is_set():
+                    self.aurora["note"] = "Stopped. " + str(taken) + " frames."
 
     def start_bracket(self, count, step):
         count = int(count)
