@@ -10,6 +10,7 @@ struct AuroraView: View {
     @State private var outlook: AuroraOutlook?
     @State private var error: String?
     @State private var locator = Locator()
+    @State private var heading = Heading()
 
     var body: some View {
         NavigationStack {
@@ -27,6 +28,8 @@ struct AuroraView: View {
             .navigationTitle("Aurora")
             .refreshable { await load() }
             .task { await load() }
+            .onAppear { heading.start() }
+            .onDisappear { heading.stop() }
         }
     }
 
@@ -51,10 +54,20 @@ struct AuroraView: View {
                     }
                 }
                 if let b = o.bearing {
+                    let turn = heading.degrees.map { Heading.turn(from: $0, to: Double(b)) }
                     HStack(spacing: 16) {
-                        Compass(bearing: Double(b)).frame(width: 110, height: 110)
+                        Compass(bearing: Double(b), heading: heading.degrees).frame(width: 110, height: 110)
+                            .sensoryFeedback(.success, trigger: turn.map { abs($0) <= Heading.onTarget } ?? false) { _, on in on }
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Aim \(o.direction ?? "") · \(b)°").font(.headline)
+                            if let turn {
+                                // Live from the phone's compass: hold it flat, top edge pointing away from you.
+                                Group {
+                                    if abs(turn) <= Heading.onTarget { Label("You're facing it", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
+                                    else { Label("Turn \(turn < 0 ? "left" : "right") \(Int(abs(turn)))°", systemImage: turn < 0 ? "arrow.turn.up.left" : "arrow.turn.up.right") }
+                                }
+                                .font(.subheadline.bold())
+                            }
                             if let e = o.elevation { Text(e < 15 ? "Low on the horizon (\(Int(e))° up)" : "About \(Int(e))° up").font(.subheadline) }
                             if let d = o.distance_km { Text("Strongest glow about \(d) km away").font(.caption).foregroundStyle(.secondary) }
                         }
@@ -97,19 +110,29 @@ struct Panel<Content: View>: View {
     }
 }
 
-/// A compass rose with an arrow to the bearing (0° = north, up).
+/// A compass rose with an arrow to the bearing. Without a heading north is up; with the phone's heading the rose turns
+/// with the phone, so the arrow points at the aurora in the real world and sits straight up when you face it.
 struct Compass: View {
     let bearing: Double
+    var heading: Double? = nil
     var body: some View {
+        let h = heading ?? 0
+        let on = heading.map { abs(Heading.turn(from: $0, to: bearing)) <= Heading.onTarget } ?? false
         ZStack {
-            Circle().stroke(.secondary.opacity(0.4), lineWidth: 2)
-            ForEach(Array(["N", "E", "S", "W"].enumerated()), id: \.0) { i, n in
-                Text(n).font(.caption2.bold()).foregroundStyle(n == "N" ? .red : .secondary)
-                    .offset(y: -44).rotationEffect(.degrees(Double(i) * 90))
+            Circle().stroke(on ? Color.green : .secondary.opacity(0.4), lineWidth: on ? 4 : 2)
+            if heading != nil { Rectangle().fill(.secondary).frame(width: 2, height: 10).offset(y: -55) }
+            ZStack {
+                ForEach(Array(["N", "E", "S", "W"].enumerated()), id: \.0) { i, n in
+                    Text(n).font(.caption2.bold()).foregroundStyle(n == "N" ? .red : .secondary)
+                        .rotationEffect(.degrees(h - Double(i) * 90))      // keep the letters upright
+                        .offset(y: -44).rotationEffect(.degrees(Double(i) * 90))
+                }
             }
+            .rotationEffect(.degrees(-h))
             Image(systemName: "location.north.fill").font(.system(size: 34)).foregroundStyle(.green)
-                .rotationEffect(.degrees(bearing))
+                .rotationEffect(.degrees(bearing - h))
         }
+        .animation(.easeOut(duration: 0.2), value: h)
     }
 }
 
@@ -249,6 +272,35 @@ struct WatchCard: View {
             if let e = pi.lastError { Text(e).font(.caption).foregroundStyle(.red) }
         }
     }
+}
+
+/// The phone's compass while the Aurora tab is open: true north when location is allowed, magnetic otherwise.
+@MainActor @Observable
+final class Heading: NSObject, CLLocationManagerDelegate {
+    static let onTarget = 8.0
+    var degrees: Double?
+    @ObservationIgnored private let manager = CLLocationManager()
+
+    /// Signed degrees to turn, -180...180; negative is left.
+    static func turn(from heading: Double, to bearing: Double) -> Double {
+        (bearing - heading + 540).truncatingRemainder(dividingBy: 360) - 180
+    }
+
+    func start() {
+        guard CLLocationManager.headingAvailable() else { return }
+        manager.delegate = self
+        manager.headingFilter = 1
+        manager.headingOrientation = .portrait
+        manager.startUpdatingHeading()
+    }
+    func stop() { manager.stopUpdatingHeading() }
+
+    nonisolated func locationManager(_ m: CLLocationManager, didUpdateHeading h: CLHeading) {
+        let value = h.trueHeading >= 0 ? h.trueHeading : h.magneticHeading
+        guard h.headingAccuracy >= 0 else { return }
+        Task { @MainActor in degrees = value }
+    }
+    nonisolated func locationManagerShouldDisplayHeadingCalibration(_ m: CLLocationManager) -> Bool { true }
 }
 
 /// One location fix for "Use this phone's location".
