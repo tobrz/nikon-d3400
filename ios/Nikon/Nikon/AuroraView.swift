@@ -11,6 +11,7 @@ struct AuroraView: View {
     @State private var error: String?
     @State private var locator = Locator()
     @State private var heading = Heading()
+    @State private var aiming = false
 
     var body: some View {
         NavigationStack {
@@ -29,6 +30,12 @@ struct AuroraView: View {
             .refreshable { await load() }
             .task { await load() }
             .onAppear { heading.start() }
+            .sheet(isPresented: $aiming) {
+                if let o = outlook, let b = o.bearing {
+                    AimView(bearing: Double(b), direction: o.direction ?? "", elevation: o.elevation)
+                        .onAppear { heading.stop() }.onDisappear { heading.start() }
+                }
+            }
             .onDisappear { heading.stop() }
         }
     }
@@ -70,6 +77,8 @@ struct AuroraView: View {
                             }
                             if let e = o.elevation { Text(e < 15 ? "Low on the horizon (\(Int(e))° up)" : "About \(Int(e))° up").font(.subheadline) }
                             if let d = o.distance_km { Text("Strongest glow about \(d) km away").font(.caption).foregroundStyle(.secondary) }
+                            Button { aiming = true } label: { Label("Line up the camera", systemImage: "scope") }
+                                .buttonStyle(.borderedProminent).font(.footnote)
                         }
                     }
                 }

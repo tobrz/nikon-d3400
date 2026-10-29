@@ -204,7 +204,9 @@ toward nearer), where to aim (compass bearing and height), Kp, and whether the s
 `hours` (12) runs an all-night watch: every check it updates the outlook; while it's dark and the chance is at or over
 the threshold it sets the ISO (and aperture) once and shoots `aurora-<run>-NNNN` frames, tagged with the saved
 location, until the next check; it stops at dawn, at the end of `hours`, or on `POST /api/aurora/stop`. The Pi needs
-internet (house Wi-Fi or Starlink) for the forecast. The iPhone app's Aurora tab drives this.
+internet (house Wi-Fi or Starlink) for the forecast. The iPhone app's Aurora tab drives this, and can line the camera
+up with the phone lying on top of it (compass for the pan, motion sensor for the tilt). The web page has an Aurora tab
+too; it can't use the browser's precise location over plain http, so it falls back to the internet address's city.
 
 ### Shots
 

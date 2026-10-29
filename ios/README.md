@@ -20,7 +20,10 @@ Network access. No Pi changes were needed.
 - **Shots:** pictures on the Pi, JPEG + NEF as one (RAW badge). The viewer is full screen: swipe left/right through the set, EXIF under each picture (taken, camera, lens, focal length, aperture, shutter, ISO, comp., mode, metering, WB, flash, size, location), Save to Photos, Share, Delete.
 - **Aurora:** the Pi's outlook for its saved place (`GET /api/aurora`, `payload/app/aurora.py`): chance in view,
   Kp, dark or not, and a compass arrow with the bearing and height to aim at; **Use this phone's location** saves the
-  phone's position on the Pi (also used to tag pictures). NOAA's northern-hemisphere OVATION map with a 12-hour time
+  phone's position on the Pi (also used to tag pictures). The compass follows the phone's heading ("Turn left 20°",
+  a tap when you face it). **Line up the camera** (`AimView.swift`): lay the phone flat on the camera, top edge along
+  the lens; the compass gives the tripod pan and the motion sensor the lens tilt (the glow's height, kept 10-45° up),
+  each turning green within 8° / 3°. NOAA's northern-hemisphere OVATION map with a 12-hour time
   slider (the newest frame is the forecast) and the 3-day Kp forecast, both read straight from NOAA by the phone.
   **Watch tonight** starts the Pi's all-night aurora watch (threshold, exposure, interval, ISO): it checks NOAA every
   5 minutes, shoots only when it's dark and the chance in view is over the threshold, and stops at dawn.
